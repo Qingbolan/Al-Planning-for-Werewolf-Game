@@ -1,5 +1,5 @@
 """
-狼人杀智能体训练脚本
+Werewolf Game Agent Training Script
 """
 import os
 import numpy as np
@@ -18,7 +18,7 @@ from utils.visualizer import BeliefVisualizer
 
 
 class Trainer:
-    """智能体训练器"""
+    """Agent trainer"""
     
     def __init__(self, 
                  env_config: Dict[str, Any] = None, 
@@ -27,14 +27,14 @@ class Trainer:
                  save_dir: str = './models',
                  visualize_dir: str = './visualizations'):
         """
-        初始化训练器
+        Initialize trainer
         
         Args:
-            env_config: 环境配置
-            num_players: 玩家数量
-            log_dir: 日志目录
-            save_dir: 模型保存目录
-            visualize_dir: 可视化保存目录
+            env_config: Environment configuration
+            num_players: Number of players
+            log_dir: Log directory
+            save_dir: Model save directory
+            visualize_dir: Visualization save directory
         """
         self.num_players = num_players
         self.env_config = env_config or DEFAULT_GAME_CONFIG
@@ -42,15 +42,15 @@ class Trainer:
         self.save_dir = save_dir
         self.visualize_dir = visualize_dir
         
-        # 创建目录
+        # Create directories
         os.makedirs(log_dir, exist_ok=True)
         os.makedirs(save_dir, exist_ok=True)
         os.makedirs(visualize_dir, exist_ok=True)
         
-        # 创建环境
+        # Create environment
         self.env = WerewolfEnv(self.env_config)
         
-        # 统计数据
+        # Statistics
         self.stats = {
             'werewolf_wins': 0,
             'villager_wins': 0,
@@ -61,13 +61,13 @@ class Trainer:
     
     def create_agents(self, agent_types: List[str]) -> List[BaseAgent]:
         """
-        创建智能体
+        Create agents
         
         Args:
-            agent_types: 智能体类型列表
+            agent_types: List of agent types
             
         Returns:
-            智能体列表
+            List of agents
         """
         agents = []
         for i in range(self.num_players):
@@ -77,34 +77,34 @@ class Trainer:
     
     def run_episode(self, agents: List[BaseAgent], render: bool = False, visualize: bool = False) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
-        运行一局游戏
+        Run a single game
         
         Args:
-            agents: 智能体列表
-            render: 是否渲染
-            visualize: 是否可视化信念状态
+            agents: List of agents
+            render: Whether to render
+            visualize: Whether to visualize belief states
             
         Returns:
-            (游戏结果, 动作历史)
+            (Game result, Action history)
         """
-        # 重置环境
-        observations = self.env.reset()
+        # Reset environment
+        obs, _ = self.env.reset()
         
-        # 初始化智能体
+        # Initialize agents
         for i, agent in enumerate(agents):
             agent.initialize(self.env.game_state)
         
         done = False
         action_history = []
-        total_rewards = [0] * self.num_players
+        total_rewards = defaultdict(float)
         
-        # 游戏主循环
+        # Main game loop
         while not done:
-            # 渲染
+            # Render
             if render:
                 self.env.render()
             
-            # 可视化信念状态
+            # Visualize belief states
             if visualize and hasattr(agents[0], 'belief_updater') and agents[0].belief_updater:
                 believer_id = 0
                 belief_visualizer = BeliefVisualizer()
@@ -116,45 +116,62 @@ class Trainer:
                     f"{self.visualize_dir}/belief_{timestamp}.png"
                 )
             
-            current_player = self.env.game_state.current_player
+            # Get current player
+            current_player_id = self.env.current_player_id
             
-            # 如果当前阶段没有特定玩家行动，则跳过
-            if current_player is None:
-                # 游戏阶段转换
-                observations, rewards, done, infos = self.env.step(None)
-                continue
+            if current_player_id < 0:
+                # Phase end or invalid state
+                break
             
-            # 获取当前玩家的智能体
-            agent = agents[current_player]
+            # Get current player's agent
+            agent = agents[current_player_id]
             
-            # 智能体决策
-            action = agent.act(observations[current_player])
+            # Agent decision
+            action = agent.act(obs)
             
-            # 记录行动
+            # Record action
             action_info = {
-                'player_id': current_player,
+                'player_id': current_player_id,
                 'phase': self.env.game_state.phase,
+                'speech_round': self.env.game_state.speech_round,  # Record speech round
                 'action': action
             }
             action_history.append(action_info)
             
-            # 执行行动
-            observations, rewards, done, infos = self.env.step(action)
+            # Execute action
+            obs, reward, terminated, truncated, info = self.env.step(action)
             
-            # 累计奖励
-            for i in range(self.num_players):
-                total_rewards[i] += rewards[i]
+            # Accumulate rewards
+            total_rewards[current_player_id] += reward
+            
+            # Check if game is over
+            done = terminated or truncated
         
-        # 游戏结果
+        # Game result
         result = {
-            'winner': self.env.game_state.winner,
+            'winner': self.env.game_state.game_result,
             'game_length': len(action_history),
-            'total_rewards': total_rewards
+            'total_rewards': dict(total_rewards),
+            'final_roles': {i: player['current_role'] for i, player in enumerate(self.env.game_state.players)},
+            'votes': self.env.game_state.votes.copy() if hasattr(self.env.game_state, 'votes') else {}
         }
         
+        # Update statistics
+        self.stats['total_games'] += 1
+        self.stats['game_lengths'].append(len(action_history))
+        
+        if self.env.game_state.game_result == 'werewolf':
+            self.stats['werewolf_wins'] += 1
+        elif self.env.game_state.game_result == 'villager':
+            self.stats['villager_wins'] += 1
+            
+        for player_id, reward in total_rewards.items():
+            self.stats['rewards'][player_id].append(reward)
+        
         if render:
-            print(f"游戏结束! 胜利方: {result['winner']}")
-            print(f"总奖励: {result['total_rewards']}")
+            print(f"Game over! Winner: {result['winner']}")
+            print(f"Total rewards: {result['total_rewards']}")
+            print(f"Voting results: {result['votes']}")
         
         return result, action_history
     
@@ -164,166 +181,165 @@ class Trainer:
                 render: bool = False,
                 visualize: bool = False) -> Dict[str, Any]:
         """
-        评估智能体
+        Evaluate agents
         
         Args:
-            agent_types: 智能体类型列表
-            num_episodes: 评估局数
-            render: 是否渲染
-            visualize: 是否可视化
+            agent_types: List of agent types
+            num_episodes: Number of evaluation episodes
+            render: Whether to render
+            visualize: Whether to visualize
             
         Returns:
-            评估结果
+            Evaluation results
         """
         results = []
         werewolf_wins = 0
         villager_wins = 0
         
-        # 运行多局游戏
+        # Run multiple games
         for episode in range(num_episodes):
             agents = self.create_agents(agent_types)
             result, _ = self.run_episode(agents, render=(render and episode < 5), visualize=visualize)
             results.append(result)
             
-            # 统计胜率
-            if result['winner'] == 'werewolves':
+            # Count win rates
+            if result['winner'] == 'werewolf':
                 werewolf_wins += 1
-            elif result['winner'] == 'villagers':
+            elif result['winner'] == 'villager':
                 villager_wins += 1
         
-        # 计算胜率
+        # Calculate win rates
         werewolf_win_rate = werewolf_wins / num_episodes
         villager_win_rate = villager_wins / num_episodes
         
-        # 计算平均奖励
-        avg_rewards = []
-        for i in range(self.num_players):
-            rewards = [r['total_rewards'][i] for r in results]
-            avg_rewards.append(sum(rewards) / len(rewards))
+        # Calculate average rewards
+        avg_rewards = {}
+        for player_id in range(self.num_players):
+            rewards = [r['total_rewards'].get(player_id, 0) for r in results]
+            avg_rewards[player_id] = sum(rewards) / len(rewards)
         
-        return {
+        # Calculate average game length
+        avg_game_length = sum(r['game_length'] for r in results) / len(results)
+        
+        # Evaluation results
+        eval_result = {
             'num_episodes': num_episodes,
-            'agent_types': agent_types,
             'werewolf_win_rate': werewolf_win_rate,
             'villager_win_rate': villager_win_rate,
             'avg_rewards': avg_rewards,
-            'avg_game_length': sum(r['game_length'] for r in results) / len(results)
+            'avg_game_length': avg_game_length
         }
+        
+        print(f"Evaluation results ({num_episodes} games):")
+        print(f"Werewolf win rate: {werewolf_win_rate:.2f}")
+        print(f"Villager win rate: {villager_win_rate:.2f}")
+        print(f"Average game length: {avg_game_length:.2f} rounds")
+        
+        return eval_result
     
     def save_results(self, results: Dict[str, Any], filename: str):
         """
-        保存评估结果
+        Save evaluation results
         
         Args:
-            results: 评估结果
-            filename: 文件名
+            results: Evaluation results
+            filename: Filename
         """
-        with open(f"{self.log_dir}/{filename}.json", 'w') as f:
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        
+        # Save as JSON
+        with open(filename, 'w') as f:
             json.dump(results, f, indent=2)
         
-        # 创建胜率可视化
-        plt.figure(figsize=(10, 6))
-        labels = ['狼人', '村民']
-        values = [results['werewolf_win_rate'], results['villager_win_rate']]
-        plt.bar(labels, values, color=['red', 'blue'])
-        plt.ylim(0, 1)
-        plt.title('阵营胜率')
-        plt.ylabel('胜率')
-        plt.savefig(f"{self.log_dir}/{filename}_win_rate.png")
-        plt.close()
-        
-        # 创建平均奖励可视化
-        plt.figure(figsize=(12, 6))
-        plt.bar(range(len(results['avg_rewards'])), results['avg_rewards'])
-        plt.title('玩家平均奖励')
-        plt.xlabel('玩家ID')
-        plt.ylabel('平均奖励')
-        plt.savefig(f"{self.log_dir}/{filename}_rewards.png")
-        plt.close()
+        # If enough data, create win rate over time plot
+        if 'win_rates' in results and len(results['win_rates']) > 1:
+            werewolf_rates = [r[0] for r in results['win_rates']]
+            villager_rates = [r[1] for r in results['win_rates']]
+            
+            plt.figure(figsize=(10, 6))
+            plt.plot(werewolf_rates, label='Werewolf Win Rate')
+            plt.plot(villager_rates, label='Villager Win Rate')
+            plt.xlabel('Generation')
+            plt.ylabel('Win Rate')
+            plt.title('Win Rates Over Generations')
+            plt.legend()
+            plt.grid(True)
+            plt.savefig(f"{os.path.splitext(filename)[0]}_winrates.png")
+            plt.close()
     
     def train_self_play(self, 
-                       initial_agent_types: List[str], 
-                       num_generations: int = 10,
-                       episodes_per_generation: int = 100,
-                       render: bool = False,
-                       visualize: bool = False):
+                   initial_agent_types: List[str], 
+                   num_generations: int = 10,
+                   episodes_per_generation: int = 100,
+                   render: bool = False,
+                   visualize: bool = False):
         """
-        自我对弈训练
+        Self-play training
         
         Args:
-            initial_agent_types: 初始智能体类型列表
-            num_generations: 世代数量
-            episodes_per_generation: 每世代局数
-            render: 是否渲染
-            visualize: 是否可视化
+            initial_agent_types: Initial agent types
+            num_generations: Number of training generations
+            episodes_per_generation: Episodes per generation
+            render: Whether to render
+            visualize: Whether to visualize
         """
-        current_agent_types = initial_agent_types
+        # Initialize agents
+        agent_types = initial_agent_types.copy()
         
+        win_rates = []
+        
+        # Start training
         for generation in range(num_generations):
-            print(f"训练世代 {generation + 1}/{num_generations}")
+            print(f"Generation {generation+1}/{num_generations}")
             
-            # 评估当前智能体
-            eval_results = self.evaluate(
-                current_agent_types, 
-                num_episodes=episodes_per_generation,
-                render=render,
-                visualize=visualize
-            )
+            # Create agents
+            agents = self.create_agents(agent_types)
             
-            # 保存结果
-            self.save_results(eval_results, f"generation_{generation}")
+            # Self-play
+            for episode in range(episodes_per_generation):
+                print(f"Episode {episode+1}/{episodes_per_generation}", end='\r')
+                self.run_episode(agents, render=(render and episode < 3), visualize=visualize)
+                
+                # Update agents (e.g., neural network training)
+                for agent in agents:
+                    if hasattr(agent, 'update') and callable(agent.update):
+                        agent.update()
             
-            # 更新智能体策略
-            # 在实际实现中，这里应该根据评估结果改进智能体
-            # 例如：更新策略网络参数、调整探索率等
+            # Evaluate results
+            eval_result = self.evaluate(agent_types, num_episodes=50)
+            win_rates.append((eval_result['werewolf_win_rate'], eval_result['villager_win_rate']))
             
-            # 目前仅为演示，我们不做实际更新
-            current_agent_types = initial_agent_types
-        
-        print("训练完成!")
+            # Save models and results
+            for i, agent in enumerate(agents):
+                if hasattr(agent, 'save') and callable(agent.save):
+                    agent.save(f"{self.save_dir}/agent_{i}_gen_{generation}.pt")
+            
+            # Save evaluation results
+            results = {
+                'generations': generation + 1,
+                'win_rates': win_rates,
+                'final_eval': eval_result
+            }
+            self.save_results(results, f"{self.log_dir}/training_results.json")
+            
+            print(f"Completed Generation {generation+1}, Werewolf win rate: {eval_result['werewolf_win_rate']:.2f}, Villager win rate: {eval_result['villager_win_rate']:.2f}")
+            
+        return agents
 
 
 def main():
-    """主函数"""
-    # 创建训练器
-    trainer = Trainer(num_players=6)
+    """Main function"""
+    trainer = Trainer()
     
-    # 随机智能体评估
-    print("评估随机智能体...")
-    random_results = trainer.evaluate(
-        agent_types=['random'],
-        num_episodes=100,
-        render=True
-    )
-    trainer.save_results(random_results, "random_agents")
+    # Create agents
+    agents = trainer.create_agents(['random'] * 6)
     
-    # 启发式智能体评估
-    print("评估启发式智能体...")
-    heuristic_results = trainer.evaluate(
-        agent_types=['heuristic'],
-        num_episodes=100,
-        render=True
-    )
-    trainer.save_results(heuristic_results, "heuristic_agents")
+    # Run a single game
+    result, _ = trainer.run_episode(agents, render=True)
     
-    # 混合智能体评估
-    print("评估混合智能体...")
-    mixed_results = trainer.evaluate(
-        agent_types=['random', 'heuristic'],
-        num_episodes=100,
-        render=True
-    )
-    trainer.save_results(mixed_results, "mixed_agents")
+    print("Game result:", result)
     
-    # 简单的自我对弈训练演示
-    print("开始自我对弈训练...")
-    trainer.train_self_play(
-        initial_agent_types=['heuristic'],
-        num_generations=5,
-        episodes_per_generation=50,
-        render=False
-    )
-
 
 if __name__ == "__main__":
     main() 

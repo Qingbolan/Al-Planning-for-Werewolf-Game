@@ -1,5 +1,5 @@
 """
-狼人杀游戏主程序
+Werewolf Game Main Program
 """
 import argparse
 import os
@@ -12,14 +12,14 @@ from typing import List, Dict, Any
 from werewolf_env import WerewolfEnv
 from agents import (
     BaseAgent, RandomAgent, HeuristicAgent, RLAgent,
-    create_agent, create_rl_agent
+    create_agent, create_rl_agent, HAS_RL_AGENT
 )
-from train import Trainer
 from utils.visualizer import BeliefVisualizer
+from config.default_config import DEFAULT_GAME_CONFIG
 
 
 def set_seed(seed: int):
-    """设置随机种子"""
+    """Set random seed"""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -29,86 +29,113 @@ def set_seed(seed: int):
 
 
 def parse_args():
-    """解析命令行参数"""
-    parser = argparse.ArgumentParser(description='狼人杀游戏')
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Werewolf Game')
     
-    # 模式选择
+    # Mode selection
     parser.add_argument('--mode', type=str, default='play',
                        choices=['play', 'train', 'evaluate'],
-                       help='运行模式: play (游玩), train (训练), evaluate (评估)')
+                       help='Run mode: play (play game), train (training), evaluate (evaluation)')
     
-    # 游戏配置
+    # Game configuration
     parser.add_argument('--num_players', type=int, default=6,
-                       help='玩家数量')
+                       help='Number of players')
     parser.add_argument('--render', action='store_true',
-                       help='是否渲染游戏')
+                       help='Whether to render the game')
+    parser.add_argument('--max_speech_rounds', type=int, default=3, 
+                       help='Number of speech rounds (3-round speech mechanism)')
+    parser.add_argument('--reverse_vote_rules', action='store_true', default=True,
+                       help='Whether to use reversed voting rules (villagers voting leads to werewolf victory, and vice versa)')
     
-    # 智能体配置
+    # Agent configuration
     parser.add_argument('--agent_types', type=str, nargs='+', 
                        default=['random'],
                        choices=['random', 'heuristic', 'rl'],
-                       help='使用的智能体类型')
+                       help='Types of agents to use')
     
-    # 训练配置
+    # Training configuration
     parser.add_argument('--train_episodes', type=int, default=1000,
-                       help='训练局数')
+                       help='Number of training episodes')
     parser.add_argument('--num_generations', type=int, default=10,
-                       help='训练世代数')
+                       help='Number of training generations')
     parser.add_argument('--load_model', type=str, default=None,
-                       help='加载模型路径')
+                       help='Path to load model')
     parser.add_argument('--save_model', type=str, default='./models/rl_agent.pt',
-                       help='保存模型路径')
+                       help='Path to save model')
     
-    # 评估配置
+    # Evaluation configuration
     parser.add_argument('--eval_episodes', type=int, default=100,
-                       help='评估局数')
+                       help='Number of evaluation episodes')
     parser.add_argument('--visualize', action='store_true',
-                       help='是否可视化信念状态')
+                       help='Whether to visualize belief states')
     
-    # 其他配置
+    # Other configuration
     parser.add_argument('--seed', type=int, default=42,
-                       help='随机种子')
+                       help='Random seed')
     parser.add_argument('--device', type=str, default='cpu',
                        choices=['cpu', 'cuda'],
-                       help='运行设备 (cpu 或 cuda)')
+                       help='Run device (cpu or cuda)')
     
     return parser.parse_args()
 
 
 def play_game(args):
-    """运行一局游戏"""
-    # 创建环境
-    env = WerewolfEnv({})
+    """Run a single game"""
+    # Create configuration
+    config = DEFAULT_GAME_CONFIG.copy()
+    config.update({
+        'num_players': args.num_players,
+        'max_speech_rounds': args.max_speech_rounds,
+        'reverse_vote_rules': args.reverse_vote_rules
+    })
     
-    # 创建智能体
+    print("Game configuration:", config)
+    
+    # Create environment
+    env = WerewolfEnv(config, render_mode="ansi" if args.render else None)
+    
+    # Create agents
     agents = []
     for i in range(args.num_players):
         agent_type = args.agent_types[i % len(args.agent_types)]
         if agent_type == 'rl':
-            agent = create_rl_agent(i, args.device)
-            if args.load_model:
-                agent.load_model(args.load_model)
+            # Check if RL agent module exists
+            if not HAS_RL_AGENT:
+                print(f"Warning: RL agent module not implemented, using random agent instead")
+                agent = create_agent('random', i)
+            else:
+                agent = create_rl_agent(i, args.device)
+                if args.load_model:
+                    agent.load_model(args.load_model)
         else:
             agent = create_agent(agent_type, i)
         agents.append(agent)
+        print(f"Created agent {i}: {agent_type}")
     
-    # 重置环境
-    observations = env.reset()
+    # Reset environment
+    obs, info = env.reset()
+    print("\nGame started!")
+    print("Initial information:", info)
     
-    # 初始化智能体
+    # Initialize agents
     for i, agent in enumerate(agents):
         agent.initialize(env.game_state)
     
-    # 游戏主循环
+    # Main game loop
     done = False
-    while not done:
-        # 渲染
+    action_history = []
+    step_count = 0
+    
+    while not done and step_count < 1000:  # Add maximum step limit
+        # Render
         if args.render:
-            env.render()
-            time.sleep(0.5)  # 慢速显示
+            rendered = env.render()
+            if rendered:
+                print(rendered)
+            time.sleep(0.5)  # Slow display
         
-        # 可视化信念状态
-        if args.visualize and isinstance(agents[0], (HeuristicAgent, RLAgent)):
+        # Visualize belief states
+        if args.visualize and hasattr(agents[0], 'belief_updater') and agents[0].belief_updater:
             believer_id = 0
             belief_visualizer = BeliefVisualizer()
             timestamp = int(time.time())
@@ -119,100 +146,97 @@ def play_game(args):
                 f"./visualizations/belief_{timestamp}.png"
             )
         
-        current_player = env.game_state.current_player
+        # Get current player
+        current_player_id = env.current_player_id
         
-        # 如果当前阶段没有特定玩家行动，则跳过
-        if current_player is None:
-            # 游戏阶段转换
-            observations, rewards, done, infos = env.step(None)
-            continue
+        if current_player_id < 0:
+            print("Warning: Invalid current player ID")
+            break
         
-        # 获取当前玩家的智能体
-        agent = agents[current_player]
+        # Get current player's agent
+        agent = agents[current_player_id]
         
-        # 智能体决策
-        action = agent.act(observations[current_player])
+        # Agent decision
+        action = agent.act(obs)
         
-        # 执行行动
-        observations, rewards, done, infos = env.step(action)
+        # Record action
+        action_info = {
+            'player_id': current_player_id,
+            'phase': env.game_state.phase,
+            'speech_round': env.game_state.speech_round if env.game_state.phase == 'day' else 0,
+            'action': action
+        }
+        action_history.append(action_info)
+        print(f"\nStep {step_count}:")
+        print(f"Current player: {current_player_id}")
+        print(f"Game phase: {env.game_state.phase}")
+        print(f"Action: {action}")
         
-        # 对RL智能体进行更新
-        if isinstance(agent, RLAgent):
-            agent.update(rewards[current_player], done)
+        # Execute action
+        obs, reward, terminated, truncated, info = env.step(action)
+        print(f"Reward: {reward}")
+        print(f"Info: {info}")
+        
+        # Check if game is over
+        done = terminated or truncated
+        step_count += 1
     
-    # 游戏结束
+    # Game over
     if args.render:
-        env.render()
-        print(f"游戏结束! 胜利方: {env.game_state.winner}")
+        rendered = env.render()
+        if rendered:
+            print(rendered)
+        print(f"\nGame over! Total steps: {step_count}")
+        print(f"Winner: {env.game_state.game_result}")
+        print(f"Voting results: {env.game_state.votes}")
     
     return {
-        'winner': env.game_state.winner,
-        'num_turns': env.game_state.turn
+        'winner': env.game_state.game_result,
+        'num_rounds': env.game_state.round,
+        'speech_rounds': env.game_state.speech_round if hasattr(env.game_state, 'speech_round') else 0,
+        'votes': env.game_state.votes if hasattr(env.game_state, 'votes') else {},
+        'final_roles': {i: player['current_role'] for i, player in enumerate(env.game_state.players)},
+        'total_steps': step_count
     }
 
 
 def main():
-    """主函数"""
+    """Main function"""
     args = parse_args()
     
-    # 设置随机种子
+    # Set random seed
     set_seed(args.seed)
     
-    # 确保目录存在
+    # Ensure directories exist
     os.makedirs('./models', exist_ok=True)
     os.makedirs('./logs', exist_ok=True)
     os.makedirs('./visualizations', exist_ok=True)
     
+    # Create game configuration
+    game_config = DEFAULT_GAME_CONFIG.copy()
+    game_config.update({
+        'num_players': args.num_players,
+        'max_speech_rounds': args.max_speech_rounds,
+        'reverse_vote_rules': args.reverse_vote_rules
+    })
+    
+    # Check if RL agent exists and give warning if needed
+    if 'rl' in args.agent_types and not HAS_RL_AGENT:
+        print("Warning: RL agent module not implemented, will use random agent instead")
+        args.agent_types = ['random' if t == 'rl' else t for t in args.agent_types]
+    
     if args.mode == 'play':
-        # 运行单局游戏
+        # Run single game
         result = play_game(args)
-        print(f"游戏结果: {result}")
+        print(f"Game result: {result}")
         
     elif args.mode == 'train':
-        # 训练模式
-        trainer = Trainer(num_players=args.num_players)
-        
-        if 'rl' in args.agent_types:
-            # 深度强化学习训练
-            print("训练RL智能体...")
-            # 这里应该实现RL智能体的训练逻辑
-            # 目前使用简单的自我对弈作为示例
-            trainer.train_self_play(
-                initial_agent_types=args.agent_types,
-                num_generations=args.num_generations,
-                episodes_per_generation=args.train_episodes // args.num_generations,
-                render=args.render,
-                visualize=args.visualize
-            )
-        else:
-            # 启发式智能体训练/评估
-            print("评估启发式智能体...")
-            trainer.evaluate(
-                agent_types=args.agent_types,
-                num_episodes=args.train_episodes,
-                render=args.render,
-                visualize=args.visualize
-            )
+        print("Warning: Training functionality not implemented")
+        print("Please use run_training.py for training")
         
     elif args.mode == 'evaluate':
-        # 评估模式
-        trainer = Trainer(num_players=args.num_players)
-        
-        print(f"评估智能体: {args.agent_types}...")
-        eval_results = trainer.evaluate(
-            agent_types=args.agent_types,
-            num_episodes=args.eval_episodes,
-            render=args.render,
-            visualize=args.visualize
-        )
-        
-        print("评估结果:")
-        print(f"狼人胜率: {eval_results['werewolf_win_rate']:.2f}")
-        print(f"村民胜率: {eval_results['villager_win_rate']:.2f}")
-        print(f"平均游戏长度: {eval_results['avg_game_length']:.2f} 轮")
-        
-        # 保存结果
-        trainer.save_results(eval_results, f"eval_{'-'.join(args.agent_types)}")
+        print("Warning: Evaluation functionality not implemented")
+        print("Please use run_training.py for evaluation")
 
 
 if __name__ == "__main__":
