@@ -61,6 +61,7 @@ python run_training.py --num_episodes 5000 --batch_size 4
 ```
 
 Main parameters:
+
 - `--num_episodes`: Number of training episodes
 - `--batch_size`: Batch size
 - `--learning_rate`: Learning rate
@@ -100,13 +101,15 @@ trainer.train(num_episodes=5000)
 
 The project implements a simplified version of the Werewolf game with the following roles:
 
-1. Werewolf
-2. Villager
-3. Seer
-4. Robber
-5. Troublemaker
-6. Insomniac
-7. Minion
+| Role                   | Team          | Ability                                                                                                                      | Goal                                                                                              | Strategy                                                                                                                                                   |
+| ---------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Werewolf**     | Werewolf Camp | All werewolves open their eyes at night to see teammates. If only one werewolf in game, can check one card from center pile. | Avoid being voted out. If a villager or non-werewolf receives the most votes, werewolf team wins. | Conceal identity by claiming to be another role; deflect suspicion to villagers.                                                                           |
+| **Villager**     | Villager Camp | No special abilities or night actions.                                                                                       | Work with other village team members to identify and vote out werewolves.                         | Observe carefully, participate in discussions, use deductive reasoning to identify werewolves.                                                             |
+| **Seer**         | Villager Camp | Can check one other player's card OR two cards from the center pile during night phase.                                      | Use information to help identify werewolves.                                                      | May reveal information to help villagers, but risks becoming a target for werewolves.                                                                      |
+| **Robber**       | Villager Camp | Can steal another player's card, swap it with own, and check new identity.                                                   | Use gathered information to help the village, while adapting to potentially new role.             | Can claim knowledge about another player's role (the one they robbed), but must be careful if they've become a werewolf after the swap.                    |
+| **Troublemaker** | Villager Camp | Can swap cards between any two other players without looking at them.                                                        | Create confusion among werewolves and gather information from reactions.                          | By announcing which players they switched, can observe reactions and help deduce roles.                                                                    |
+| **Insomniac**    | Villager Camp | Wakes up at end of night phase to check final identity to see if it was switched.                                            | Provide confirmed information about at least one player (themselves).                             | Can validate or contradict claims by Robber or Troublemaker if their card was affected.                                                                    |
+| **Minion**       | Werewolf Camp | Opens eyes during night to see who werewolves are, but werewolves don't know who minion is.                                  | Protect werewolves and help them win, even at personal cost.                                      | Often claims to be a villager or another role to deflect suspicion from werewolves. If minion is eliminated instead of werewolf, werewolf team still wins. |
 
 The game consists of the following phases:
 
