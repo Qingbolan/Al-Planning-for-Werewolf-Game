@@ -1,34 +1,34 @@
-# 狼人杀强化学习项目
+# Werewolf Game Reinforcement Learning Project
 
-这个项目实现了一个用于狼人杀游戏的强化学习环境和智能体。项目使用Gymnasium框架实现游戏环境，并基于PyTorch实现了强化学习算法来训练智能体。
+This project implements a reinforcement learning environment and agents for the Werewolf game. The project uses the Gymnasium framework for the game environment and implements reinforcement learning algorithms based on PyTorch to train the agents.
 
-## 项目结构
+## Project Structure
 
 ```
-├── agents/               # 智能体实现
-│   ├── base_agent.py     # 基础智能体、随机智能体和启发式智能体
-├── config/               # 配置文件
-│   ├── default_config.py # 默认游戏配置
-├── models/               # 模型实现
-│   ├── rl_agent.py       # 强化学习智能体和神经网络模型
-├── train/                # 训练相关代码
-│   ├── rl_trainer.py     # 强化学习训练器
-├── utils/                # 工具函数
-│   ├── belief_updater.py # 信念更新器
-├── werewolf_env/         # 游戏环境
-│   ├── env.py            # 主环境类
-│   ├── state.py          # 游戏状态
-│   ├── actions.py        # 动作定义
-│   ├── roles.py          # 角色定义
-├── main.py               # 游戏主程序
-├── run_training.py       # 训练入口
-├── test_env.py           # 环境测试
-├── requirements.txt      # 依赖包
+├── agents/               # Agent implementations
+│   ├── base_agent.py     # Base agent, random agent, and heuristic agent
+├── config/               # Configuration files
+│   ├── default_config.py # Default game configuration
+├── models/               # Model implementations
+│   ├── rl_agent.py       # Reinforcement learning agent and neural network model
+├── train/                # Training related code
+│   ├── rl_trainer.py     # Reinforcement learning trainer
+├── utils/                # Utility functions
+│   ├── belief_updater.py # Belief updater
+├── werewolf_env/         # Game environment
+│   ├── env.py            # Main environment class
+│   ├── state.py          # Game state
+│   ├── actions.py        # Action definitions
+│   ├── roles.py          # Role definitions
+├── main.py               # Main game program
+├── run_training.py       # Training entry point
+├── test_env.py           # Environment testing
+├── requirements.txt      # Dependencies
 ```
 
-## 依赖包
+## Dependencies
 
-项目依赖以下Python包：
+The project depends on the following Python packages:
 
 ```
 gymnasium>=0.28.1
@@ -41,47 +41,46 @@ tqdm>=4.65.0
 wandb>=0.15.0
 ```
 
-## 安装
+## Installation
 
-1. 克隆此仓库
-2. 安装依赖包：
+1. Clone this repository
+2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 使用方法
+## Usage
 
-### 训练智能体
+### Training Agents
 
-使用以下命令开始训练：
+Start training with the following command:
 
 ```bash
 python run_training.py --num_episodes 5000 --batch_size 4
 ```
 
-主要参数说明：
+Main parameters:
+- `--num_episodes`: Number of training episodes
+- `--batch_size`: Batch size
+- `--learning_rate`: Learning rate
+- `--gamma`: Discount factor
+- `--use_cuda`: Whether to use GPU for training
+- `--use_wandb`: Whether to use wandb for experiment logging
 
-- `--num_episodes`: 训练局数
-- `--batch_size`: 批次大小
-- `--learning_rate`: 学习率
-- `--gamma`: 折扣因子
-- `--use_cuda`: 是否使用GPU训练
-- `--use_wandb`: 是否使用wandb记录实验
+More parameters can be viewed with `python run_training.py --help`.
 
-更多参数可以通过`python run_training.py --help`查看。
+### Continue Training
 
-### 继续训练
-
-如果要从之前保存的模型继续训练：
+To continue training from a saved model:
 
 ```bash
 python run_training.py --continue_training --model_path ./models/saved/model_episode_1000.pt
 ```
 
-### 自定义训练
+### Custom Training
 
-您也可以通过导入训练器来自定义训练流程：
+You can also customize the training process by importing the trainer:
 
 ```python
 from train import RLTrainer
@@ -93,52 +92,64 @@ trainer = RLTrainer(
     learning_rate=0.0003
 )
 
-# 开始训练
+# Start training
 trainer.train(num_episodes=5000)
 ```
 
-## 游戏规则
+## Game Rules
 
-这个项目实现了狼人杀游戏的一个简化版本，包括以下角色：
+The project implements a simplified version of the Werewolf game with the following roles:
 
-1. 狼人 (Werewolf)
-2. 村民 (Villager)
-3. 预言家 (Seer)
-4. 强盗 (Robber)
-5. 捣蛋鬼 (Troublemaker)
-6. 失眠者 (Insomniac)
-7. 爪牙 (Minion)
+1. Werewolf
+2. Villager
+3. Seer
+4. Robber
+5. Troublemaker
+6. Insomniac
+7. Minion
 
-游戏流程包括以下阶段：
+The game consists of the following phases:
 
-1. 夜晚阶段：各角色按顺序执行各自的特殊能力
-2. 白天阶段：玩家讨论和发言
-3. 投票阶段：所有玩家投票决定驱逐一名玩家
-4. 结算阶段：判断游戏胜负
+1. Night Phase: Each role performs their special abilities in order
+2. Day Phase: Players discuss and make speeches
+3. Voting Phase: All players vote to eliminate one player
+4. Resolution Phase: Determine game outcome
 
-## 智能体
+## Agents
 
-项目实现了三种类型的智能体：
+The project implements three types of agents:
 
-1. 随机智能体 (RandomAgent)：随机选择合法动作
-2. 启发式智能体 (HeuristicAgent)：基于规则策略选择动作
-3. 强化学习智能体 (RLAgent)：基于神经网络模型学习策略
+1. Random Agent: Selects actions randomly from valid options
+2. Heuristic Agent: Selects actions based on rule-based strategies
+3. Reinforcement Learning Agent: Learns strategies using neural network models
 
-## 模型
+## Environment Features
 
-强化学习智能体使用了一个包含以下组件的神经网络模型：
+The game environment includes:
 
-1. 特征提取器
-2. 角色嵌入层
-3. 玩家嵌入层
-4. LSTM层处理历史信息
-5. 策略头输出动作概率
-6. 价值头输出状态价值
+1. Multi-agent environment
+2. Partially observable state
+3. Discrete action space
+4. Modified rules:
+   - Three rounds of sequential speech during day
+   - Single round of voting at night
+   - Reversed victory conditions
 
-## 贡献
+## Neural Network Model
 
-欢迎提交issue和pull request来改进这个项目。
+The reinforcement learning agent uses a neural network model with the following components:
 
-## 许可证
+1. Feature extractor
+2. Role embedding layer
+3. Player embedding layer
+4. LSTM layer for processing historical information
+5. Policy head for action probability output
+6. Value head for state value output
 
-MIT 许可证
+## Contributing
+
+Contributions are welcome! Please feel free to submit issues and pull requests to improve this project.
+
+## License
+
+MIT License

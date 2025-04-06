@@ -1,5 +1,5 @@
 """
-狼人杀强化学习训练启动脚本
+Werewolf Game Reinforcement Learning Training Script
 """
 import argparse
 import torch
@@ -7,113 +7,116 @@ import random
 import numpy as np
 import os
 
-from train.rl_trainer import RLTrainer
+from train import Trainer
 from config.default_config import DEFAULT_GAME_CONFIG
 
 
 def parse_args():
-    """解析命令行参数"""
-    parser = argparse.ArgumentParser(description='狼人杀强化学习训练')
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Werewolf Game Reinforcement Learning Training')
     
-    # 基本训练参数
-    parser.add_argument('--num_episodes', type=int, default=5000, help='训练局数')
-    parser.add_argument('--num_players', type=int, default=6, help='玩家数量')
-    parser.add_argument('--batch_size', type=int, default=4, help='批次大小')
-    parser.add_argument('--evaluate_every', type=int, default=100, help='每多少局评估一次')
-    parser.add_argument('--save_every', type=int, default=500, help='每多少局保存一次模型')
-    parser.add_argument('--render_every', type=int, default=200, help='每多少局渲染一次')
+    # Basic training parameters
+    parser.add_argument('--num_episodes', type=int, default=5000, help='Number of training episodes')
+    parser.add_argument('--num_players', type=int, default=6, help='Number of players')
+    parser.add_argument('--batch_size', type=int, default=4, help='Batch size')
+    parser.add_argument('--evaluate_every', type=int, default=100, help='Evaluate every N episodes')
+    parser.add_argument('--save_every', type=int, default=500, help='Save model every N episodes')
+    parser.add_argument('--render_every', type=int, default=200, help='Render every N episodes')
     
-    # 模型参数
-    parser.add_argument('--obs_dim', type=int, default=128, help='观察空间维度')
-    parser.add_argument('--action_dim', type=int, default=100, help='动作空间维度')
-    parser.add_argument('--hidden_dim', type=int, default=256, help='隐藏层维度')
+    # Model parameters
+    parser.add_argument('--obs_dim', type=int, default=128, help='Observation space dimension')
+    parser.add_argument('--action_dim', type=int, default=100, help='Action space dimension')
+    parser.add_argument('--hidden_dim', type=int, default=256, help='Hidden layer dimension')
     
-    # 优化器参数
-    parser.add_argument('--learning_rate', type=float, default=0.0003, help='学习率')
-    parser.add_argument('--gamma', type=float, default=0.99, help='折扣因子')
-    parser.add_argument('--entropy_coef', type=float, default=0.01, help='熵系数')
-    parser.add_argument('--value_coef', type=float, default=0.5, help='价值函数系数')
-    parser.add_argument('--max_grad_norm', type=float, default=0.5, help='梯度裁剪范数')
+    # Optimizer parameters
+    parser.add_argument('--learning_rate', type=float, default=0.0003, help='Learning rate')
+    parser.add_argument('--gamma', type=float, default=0.99, help='Discount factor')
+    parser.add_argument('--entropy_coef', type=float, default=0.01, help='Entropy coefficient')
+    parser.add_argument('--value_coef', type=float, default=0.5, help='Value function coefficient')
+    parser.add_argument('--max_grad_norm', type=float, default=0.5, help='Gradient clipping norm')
     
-    # 环境参数
-    parser.add_argument('--seed', type=int, default=42, help='随机种子')
+    # Environment parameters
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--max_speech_rounds', type=int, default=3, help='Number of speech rounds')
+    parser.add_argument('--reverse_vote_rules', action='store_true', default=True, help='Whether to use reversed voting rules')
     
-    # 路径参数
-    parser.add_argument('--log_dir', type=str, default='./logs', help='日志目录')
-    parser.add_argument('--save_dir', type=str, default='./models/saved', help='模型保存目录')
-    parser.add_argument('--visualize_dir', type=str, default='./visualizations', help='可视化保存目录')
+    # Path parameters
+    parser.add_argument('--log_dir', type=str, default='./logs', help='Log directory')
+    parser.add_argument('--save_dir', type=str, default='./models/saved', help='Model save directory')
+    parser.add_argument('--visualize_dir', type=str, default='./visualizations', help='Visualization save directory')
     
-    # 其他参数
-    parser.add_argument('--use_cuda', action='store_true', help='是否使用CUDA')
-    parser.add_argument('--use_wandb', action='store_true', help='是否使用wandb记录实验')
-    parser.add_argument('--continue_training', action='store_true', help='是否继续上次的训练')
-    parser.add_argument('--model_path', type=str, default=None, help='继续训练时加载的模型路径')
+    # Other parameters
+    parser.add_argument('--use_cuda', action='store_true', help='Whether to use CUDA')
+    parser.add_argument('--use_wandb', action='store_true', help='Whether to use wandb for experiment logging')
+    parser.add_argument('--continue_training', action='store_true', help='Whether to continue previous training')
+    parser.add_argument('--model_path', type=str, default=None, help='Model path to load when continuing training')
+    parser.add_argument('--agent_types', type=str, nargs='+', default=['random'], 
+                       help='List of agent types to use, options: random, heuristic, rl')
     
     return parser.parse_args()
 
 
 def main():
-    """主函数"""
-    # 解析参数
+    """Main function"""
+    # Parse arguments
     args = parse_args()
     
-    # 设置随机种子
+    # Set random seed
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     
-    # 设置设备
+    # Set device
     device = "cuda" if args.use_cuda and torch.cuda.is_available() else "cpu"
-    print(f"使用设备: {device}")
+    print(f"Using device: {device}")
     
-    # 创建目录
+    # Create directories
     os.makedirs(args.log_dir, exist_ok=True)
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.visualize_dir, exist_ok=True)
     
-    # 创建训练器
-    trainer = RLTrainer(
-        env_config=DEFAULT_GAME_CONFIG,
+    # Modify game configuration to support new game rules
+    game_config = DEFAULT_GAME_CONFIG.copy()
+    game_config.update({
+        'num_players': args.num_players,
+        'max_speech_rounds': args.max_speech_rounds,
+        'reverse_vote_rules': args.reverse_vote_rules
+    })
+    
+    # Create trainer
+    trainer = Trainer(
+        env_config=game_config,
         num_players=args.num_players,
-        obs_dim=args.obs_dim,
-        action_dim=args.action_dim,
-        learning_rate=args.learning_rate,
-        gamma=args.gamma,
-        entropy_coef=args.entropy_coef,
-        value_coef=args.value_coef,
-        max_grad_norm=args.max_grad_norm,
-        device=device,
         log_dir=args.log_dir,
         save_dir=args.save_dir,
-        visualize_dir=args.visualize_dir,
-        use_wandb=args.use_wandb
+        visualize_dir=args.visualize_dir
     )
     
-    # 继续训练
-    if args.continue_training and args.model_path:
-        print(f"从 {args.model_path} 继续训练")
-        trainer.load_model(args.model_path)
+    # Start training or evaluation
+    if args.num_episodes > 0:
+        print("Starting training...")
+        agents = trainer.train_self_play(
+            initial_agent_types=args.agent_types,
+            num_generations=args.num_episodes // args.evaluate_every,
+            episodes_per_generation=args.evaluate_every,
+            render=(args.render_every > 0),
+            visualize=args.use_wandb
+        )
+    else:
+        # Evaluation only
+        print("Starting evaluation...")
+        eval_result = trainer.evaluate(
+            agent_types=args.agent_types,
+            num_episodes=100,
+            render=True,
+            visualize=args.use_wandb
+        )
+        print("\nEvaluation results:")
+        print(f"Werewolf win rate: {eval_result['werewolf_win_rate']:.2f}")
+        print(f"Villager win rate: {eval_result['villager_win_rate']:.2f}")
+        print(f"Average game length: {eval_result['avg_game_length']:.2f} rounds")
     
-    # 开始训练
-    print("开始训练...")
-    stats = trainer.train(
-        num_episodes=args.num_episodes,
-        batch_size=args.batch_size,
-        opponent_types=['random', 'heuristic'],
-        evaluate_every=args.evaluate_every,
-        save_every=args.save_every,
-        render_every=args.render_every
-    )
-    
-    # 最终评估
-    print("进行最终评估...")
-    eval_result = trainer.evaluate(num_episodes=100, render=False)
-    print("\n最终评估结果:")
-    print(f"狼人胜率: {eval_result['werewolf_win_rate']:.2f}")
-    print(f"村民胜率: {eval_result['villager_win_rate']:.2f}")
-    print(f"平均奖励: {eval_result['avg_reward']:.2f}")
-    
-    print(f"\n训练结束! 模型已保存到 {args.save_dir}")
+    print("\nTraining/Evaluation completed!")
 
 
 if __name__ == "__main__":

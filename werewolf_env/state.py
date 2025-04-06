@@ -1,5 +1,5 @@
 """
-狼人杀游戏状态表示
+Werewolf Game State Representation
 """
 from typing import List, Dict, Any, Tuple, Optional, Set
 import numpy as np
@@ -11,30 +11,30 @@ from werewolf_env.roles import create_role
 from utils.common import validate_state
 
 class GameState:
-    """游戏状态类，维护完整的游戏状态"""
+    """Game state class, maintains complete game state"""
     
     GAME_PHASES = ['init', 'night', 'day', 'vote', 'end']
     
     def __init__(self, config: Dict[str, Any]):
         """
-        初始化游戏状态
+        Initialize game state
         
         Args:
-            config: 游戏配置字典
+            config: Game configuration dictionary
         """
         self.config = config
         self.num_players = config['num_players']
         self.num_center_cards = config['num_center_cards']
         
-        # 游戏阶段
+        # Game phase
         self.phase = 'init'
         self.round = 0
         
-        # 角色分配
+        # Role assignment
         self.roles = copy.deepcopy(config['roles'])
         random.shuffle(self.roles)
         
-        # 玩家状态
+        # Player states
         self.players = []
         for i in range(self.num_players):
             self.players.append({
@@ -45,36 +45,44 @@ class GameState:
                 'belief_states': defaultdict(lambda: {role: 1/len(self.roles) for role in set(self.roles)})
             })
         
-        # 中央牌堆
+        # Center cards
         self.center_cards = self.roles[self.num_players:]
         
-        # 角色实例
+        # Role instances
         self.role_instances = {}
         for i in range(self.num_players):
             self.role_instances[i] = create_role(self.roles[i], i)
         
-        # 历史记录
+        # History records
         self.action_history = []
         self.speech_history = []
         
-        # 投票结果
+        # Voting results
         self.votes = {}
         
-        # 游戏结果
+        # Game result
         self.game_result = None
         
-        # 当前轮次玩家
+        # Current round player
         self.current_player = 0
         
-        # 当前夜晚行动角色索引
+        # Current night action role index
         self.night_action_index = 0
-        self.night_action_roles = self._get_night_action_roles()
+        self.night_action_roles = []  # Initialize as empty list
+        
+        # Speech rounds (Change part 1: Add speech round counter)
+        self.speech_round = 0
+        self.max_speech_rounds = config.get('max_speech_rounds', 3)  # Get speech rounds from config, default to 3
+        
+        # Set initial phase to night and get night action roles
+        self.phase = 'night'
+        self.night_action_roles = self._get_night_action_roles()  # Get night action roles after setting phase
         
     def _get_night_action_roles(self) -> List[int]:
-        """获取有夜间行动的角色列表"""
+        """Get list of roles with night actions"""
         night_roles = []
         
-        # 根据配置中的角色行动顺序确定夜间行动顺序
+        # Determine night action order based on role order in config
         role_order = self.config.get('role_action_order', [
             'werewolf', 'minion', 'seer', 'robber', 'troublemaker', 'insomniac'
         ])
@@ -87,7 +95,7 @@ class GameState:
         return night_roles
     
     def get_current_player(self) -> int:
-        """获取当前行动玩家ID"""
+        """Get current active player ID"""
         if self.phase == 'night':
             if self.night_action_index < len(self.night_action_roles):
                 return self.night_action_roles[self.night_action_index]
@@ -97,26 +105,30 @@ class GameState:
         return -1
     
     def next_player(self) -> int:
-        """移动到下一个玩家，返回新的当前玩家ID"""
+        """Move to next player, return new current player ID"""
         if self.phase == 'night':
             self.night_action_index += 1
             if self.night_action_index >= len(self.night_action_roles):
-                # 夜晚阶段结束
+                # Night phase ends
                 self.phase = 'day'
+                self.speech_round = 0  # Initialize speech round
                 self.current_player = 0
                 return self.current_player
             return self.night_action_roles[self.night_action_index]
         
         elif self.phase == 'day':
             self.current_player = (self.current_player + 1) % self.num_players
-            # 如果所有玩家都发言完毕，进入投票阶段
+            # If all players have spoken in a round, start new round (Change part 2: Modify day phase logic to support three rounds of speech)
             if self.current_player == 0:
-                self.phase = 'vote'
+                self.speech_round += 1
+                # If all three rounds of speech are completed, enter voting phase
+                if self.speech_round >= self.max_speech_rounds:
+                    self.phase = 'vote'
             return self.current_player
         
         elif self.phase == 'vote':
             self.current_player = (self.current_player + 1) % self.num_players
-            # 如果所有玩家都投票完毕，结束游戏
+            # If all players have voted, end game
             if self.current_player == 0 and len(self.votes) == self.num_players:
                 self.phase = 'end'
                 self._determine_winner()
@@ -126,13 +138,13 @@ class GameState:
     
     def perform_night_action(self, action_params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        执行夜晚行动
+        Execute night action
         
         Args:
-            action_params: 行动参数
+            action_params: Action parameters
             
         Returns:
-            行动结果
+            Action result
         """
         player_id = self.get_current_player()
         if player_id < 0 or self.phase != 'night':
@@ -141,7 +153,7 @@ class GameState:
         player_role = self.role_instances[player_id]
         result = player_role.night_action(self.to_dict(), action_params)
         
-        # 记录行动历史
+        # Record action history
         action_record = {
             'player_id': player_id,
             'role': player_role.original_role_name,
@@ -151,33 +163,33 @@ class GameState:
         }
         self.action_history.append(action_record)
         
-        # 更新游戏状态（如角色交换等）
+        # Update game state (e.g., role swaps)
         self._update_state_after_action(player_id, result)
         
-        # 移动到下一个玩家
+        # Move to next player
         self.next_player()
         
         return result
     
     def _update_state_after_action(self, player_id: int, action_result: Dict[str, Any]) -> None:
         """
-        根据行动结果更新游戏状态
+        Update game state based on action result
         
         Args:
-            player_id: 行动玩家ID
-            action_result: 行动结果
+            player_id: Acting player ID
+            action_result: Action result
         """
         action = action_result['action']
         
-        # 根据不同行动类型更新状态
+        # Update state based on different action types
         if action == 'swap_role':
             target_id = action_result.get('target')
             if target_id is not None and 0 <= target_id < self.num_players:
-                # 交换角色
+                # Swap roles
                 self.players[player_id]['current_role'], self.players[target_id]['current_role'] = \
                     self.players[target_id]['current_role'], self.players[player_id]['current_role']
                 
-                # 更新角色实例
+                # Update role instances
                 self.role_instances[player_id] = create_role(self.players[player_id]['current_role'], player_id)
                 self.role_instances[target_id] = create_role(self.players[target_id]['current_role'], target_id)
                 
@@ -185,198 +197,178 @@ class GameState:
             targets = action_result.get('targets', [])
             if len(targets) == 2 and action_result.get('result') == True:
                 target_id1, target_id2 = targets
-                # 交换两个玩家的角色
+                # Swap roles between two players
                 self.players[target_id1]['current_role'], self.players[target_id2]['current_role'] = \
                     self.players[target_id2]['current_role'], self.players[target_id1]['current_role']
                 
-                # 更新角色实例
+                # Update role instances
                 self.role_instances[target_id1] = create_role(self.players[target_id1]['current_role'], target_id1)
                 self.role_instances[target_id2] = create_role(self.players[target_id2]['current_role'], target_id2)
     
     def record_speech(self, player_id: int, speech_content: Dict[str, Any]) -> None:
         """
-        记录玩家发言
+        Record player speech
         
         Args:
-            player_id: 发言玩家ID
-            speech_content: 发言内容
+            player_id: Player ID
+            speech_content: Speech content
         """
-        if self.phase != 'day' or player_id != self.current_player:
-            return
-        
         speech_record = {
             'player_id': player_id,
-            'content': speech_content,
-            'round': self.round
+            'round': self.speech_round,  # Record the round number of this speech
+            'text': speech_content.get('text', ''),  # 使用完整的句子显示
+            'content': speech_content  # 保持原始字典格式用于训练
         }
         self.speech_history.append(speech_record)
         
-        # 移动到下一个玩家
+        # Move to next player
         self.next_player()
     
     def record_vote(self, voter_id: int, target_id: int) -> None:
         """
-        记录玩家投票
+        Record player vote
         
         Args:
-            voter_id: 投票者ID
-            target_id: 投票目标ID
+            voter_id: Voter ID
+            target_id: Target player ID
         """
-        if self.phase != 'vote' or voter_id != self.current_player:
-            return
-        
-        if 0 <= target_id < self.num_players:
+        if 0 <= voter_id < self.num_players and 0 <= target_id < self.num_players:
             self.votes[voter_id] = target_id
-        
-        # 移动到下一个玩家
-        self.next_player()
+            
+            # Move to next player
+            self.next_player()
     
     def _determine_winner(self) -> str:
         """
-        确定游戏胜利方
+        Determine game winner
         
         Returns:
-            胜利阵营: 'werewolf_team' 或 'villager_team'
+            Winning team ('werewolf' or 'villager')
         """
-        if not self.votes:
-            self.game_result = None
-            return None
-        
-        # 计算得票数
-        vote_counts = defaultdict(int)
+        # Count votes
+        vote_count = defaultdict(int)
         for target_id in self.votes.values():
-            vote_counts[target_id] += 1
+            vote_count[target_id] += 1
         
-        # 找出得票最多的玩家
-        max_votes = max(vote_counts.values()) if vote_counts else 0
-        most_voted = [player_id for player_id, count in vote_counts.items() if count == max_votes]
+        # Find player with most votes
+        max_votes = 0
+        voted_out = -1
+        for player_id, count in vote_count.items():
+            if count > max_votes:
+                max_votes = count
+                voted_out = player_id
+            elif count == max_votes:
+                # In case of tie, randomly choose (can be adjusted based on game rules)
+                if random.random() < 0.5:
+                    voted_out = player_id
         
-        # 如果有平票，按照规则判定
-        if len(most_voted) > 1:
-            # 检查是否有狼人在平票中
-            werewolves_in_tie = any(self.players[pid]['current_role'] == 'werewolf' for pid in most_voted)
-            if werewolves_in_tie:
-                # 狼人与好人平票，村民胜利
-                self.game_result = 'villager_team'
-                return self.game_result
-        
-        # 判断被投出的玩家是否是狼人
-        voted_out = most_voted[0] if most_voted else -1
+        # Determine winner
         if voted_out >= 0:
+            # Determine team of voted out player
             voted_role = self.players[voted_out]['current_role']
-            if voted_role == 'werewolf':
-                # 投出狼人，村民胜利
-                self.game_result = 'villager_team'
-            else:
-                # 投出非狼人，狼人胜利
-                self.game_result = 'werewolf_team'
+            from config.default_config import ROLE_TEAMS
+            voted_team = ROLE_TEAMS.get(voted_role, 'villager')
+            
+            # Check team of each voter (Change part 3: Implement reversed voting rules)
+            werewolf_win = False
+            for voter_id, target_id in self.votes.items():
+                if target_id == voted_out:
+                    voter_role = self.players[voter_id]['current_role']
+                    voter_team = ROLE_TEAMS.get(voter_role, 'villager')
+                    
+                    # Reversed voting rules: If a villager team votes, werewolves win, and vice versa
+                    if voter_team == 'villager':
+                        werewolf_win = True
+                        break
+            
+            # Determine winner based on reversed rules
+            self.game_result = 'werewolf' if werewolf_win else 'villager'
+        else:
+            # No one was voted out
+            self.game_result = 'villager'
         
         return self.game_result
     
     def get_observation(self, player_id: int) -> Dict[str, Any]:
         """
-        获取指定玩家的观察
+        Get observation for specified player
         
         Args:
-            player_id: 玩家ID
+            player_id: Player ID
             
         Returns:
-            玩家观察字典
+            Player observation (partially visible state)
         """
-        if player_id < 0 or player_id >= self.num_players:
-            return {}
+        # Create PlayerObservation object
+        obs = PlayerObservation(player_id, self)
         
-        # 公共信息
-        obs = {
+        # Return observation in dictionary format
+        return {
             'player_id': player_id,
-            'num_players': self.num_players,
             'phase': self.phase,
             'round': self.round,
-            'current_player': self.current_player,
+            'speech_round': self.speech_round,  # Add speech round info to observation
+            'current_player': self.get_current_player(),
             'original_role': self.players[player_id]['original_role'],
             'known_info': self.players[player_id]['known_info'].copy(),
+            'speech_history': self.speech_history.copy()
         }
-        
-        # 根据不同阶段提供不同信息
-        if self.phase == 'night':
-            # 夜晚只知道自己的角色和行动
-            pass
-        
-        elif self.phase in ['day', 'vote', 'end']:
-            # 白天可以看到发言历史
-            obs['speech_history'] = self.speech_history.copy()
-            
-            if self.phase in ['vote', 'end']:
-                # 投票阶段可以看到当前投票情况
-                obs['votes'] = self.votes.copy()
-                
-                if self.phase == 'end':
-                    # 游戏结束可以看到最终结果
-                    obs['game_result'] = self.game_result
-                    # 游戏结束时可以看到所有玩家的最终角色
-                    obs['final_roles'] = {p['id']: p['current_role'] for p in self.players}
-        
-        return obs
     
     def to_dict(self) -> Dict[str, Any]:
         """
-        将游戏状态转换为字典表示
+        Convert to dictionary representation
         
         Returns:
-            状态字典
+            Game state dictionary
         """
         return {
+            'players': self.players,
             'phase': self.phase,
             'round': self.round,
-            'current_player': self.current_player,
-            'players': self.players,
+            'speech_round': self.speech_round,  # Add speech round
             'center_cards': self.center_cards,
-            'action_history': self.action_history,
-            'speech_history': self.speech_history,
+            'current_player': self.current_player,
             'votes': self.votes,
             'game_result': self.game_result
         }
 
 
 class PlayerObservation:
-    """玩家观察类，表示玩家可观察到的游戏状态"""
+    """Player observation class, represents the partial game state visible to a player"""
     
     def __init__(self, player_id: int, game_state: GameState):
-        """
-        初始化玩家观察
-        
-        Args:
-            player_id: 玩家ID
-            game_state: 游戏状态
-        """
         self.player_id = player_id
-        self.observation = game_state.get_observation(player_id)
+        self.game_state = game_state
         
     def to_vector(self) -> np.ndarray:
         """
-        将观察转换为向量表示，用于神经网络输入
+        Convert player observation to vector representation for neural network input
         
         Returns:
-            观察向量
+            Observation vector
         """
-        # 这里需要根据实际项目需求进行实现
-        # 可以使用one-hot编码、词嵌入等方法
+        # Simplified handling, actual project needs more complex vector representation
+        player_data = self.game_state.players[self.player_id]
         
-        # 示例：简单的向量化
-        phase_map = {phase: i for i, phase in enumerate(GameState.GAME_PHASES)}
+        # Create base vector
+        vector_size = 50  # Adjust size based on actual needs
+        vector = np.zeros(vector_size, dtype=np.float32)
         
-        # 基本信息
-        vec = [
-            self.player_id,
-            phase_map.get(self.observation.get('phase', 'init'), 0),
-            self.observation.get('round', 0),
-            self.observation.get('current_player', 0),
-        ]
+        # Set basic information
+        vector[0] = self.player_id
+        vector[1] = self.game_state.GAME_PHASES.index(self.game_state.phase)
+        vector[2] = self.game_state.round
+        vector[3] = self.game_state.speech_round  # Add speech round to vector representation
+        vector[4] = self.game_state.get_current_player()
         
-        # 角色信息 (one-hot)
-        # 在实际实现中需要根据所有可能的角色进行编码
+        # Role information encoding
+        all_roles = list(set(self.game_state.roles))
+        role_idx = all_roles.index(player_data['original_role'])
+        vector[5] = role_idx
         
-        return np.array(vec, dtype=np.float32)
+        # Other information can be added as needed
+        
+        return vector
 
 def process_state(state):
     validate_state(state)

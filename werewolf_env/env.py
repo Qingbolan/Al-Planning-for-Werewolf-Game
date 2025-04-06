@@ -1,5 +1,5 @@
 """
-狼人杀游戏环境 - 基于Gymnasium
+Werewolf Game Environment - Based on Gymnasium
 """
 from typing import Dict, Any, List, Tuple, Optional, Union
 import numpy as np
@@ -16,137 +16,142 @@ from config.default_config import DEFAULT_GAME_CONFIG, ROLE_TEAMS
 
 class WerewolfEnv(gym.Env):
     """
-    狼人杀游戏环境
+    Werewolf Game Environment
     
-    特点：
-    1. 多智能体环境
-    2. 部分可观察状态
-    3. 离散动作空间
+    Features:
+    1. Multi-agent environment
+    2. Partially observable state
+    3. Discrete action space
+    4. Modified rules:
+       - Three rounds of sequential speech during day
+       - Single round of voting at night, reversed victory conditions
     """
     
     metadata = {'render_modes': ['human', 'ansi']}
     
     def __init__(self, config: Optional[Dict[str, Any]] = None, render_mode: Optional[str] = None):
         """
-        初始化环境
+        Initialize environment
         
         Args:
-            config: 游戏配置，如果为None则使用默认配置
-            render_mode: 渲染模式
+            config: Game configuration, use default if None
+            render_mode: Render mode
         """
-        # 合并配置
+        # Merge configuration
         self.config = DEFAULT_GAME_CONFIG.copy()
         if config:
             self.config.update(config)
         
         self.render_mode = render_mode
         
-        # 游戏状态
+        # Game state
         self.game_state = None
         
-        # 当前玩家
+        # Current player
         self.current_player_id = -1
         
-        # 游戏是否结束
+        # Game over flag
         self.done = False
         
-        # 每个玩家的累积奖励
+        # Cumulative rewards for each player
         self.rewards = defaultdict(float)
         
-        # 设置观察空间和动作空间
+        # Set up observation and action spaces
         self._setup_spaces()
     
     def _setup_spaces(self) -> None:
-        """设置观察空间和动作空间"""
-        # 定义观察空间 (这是一个简化版本，实际项目中可能需要更复杂的表示)
+        """Set up observation and action spaces"""
+        # Define observation space (this is a simplified version, actual project may need more complex representation)
         num_roles = len(set(self.config['roles']))
         num_players = self.config['num_players']
         
-        # 观察空间将是一个多离散空间和一个Box空间的混合
-        # 由于Gymnasium不直接支持混合空间，这里使用Dict空间
+        # Observation space will be a mix of multi-discrete and Box spaces
+        # Since Gymnasium doesn't directly support mixed spaces, we use Dict space
         self.observation_space = spaces.Dict({
-            # 玩家ID
+            # Player ID
             'player_id': spaces.Discrete(num_players),
-            # 游戏阶段
+            # Game phase
             'phase': spaces.Discrete(len(GameState.GAME_PHASES)),
-            # 当前轮次
+            # Current round
             'round': spaces.Discrete(self.config['max_rounds'] + 1),
-            # 当前玩家
+            # Current speech round
+            'speech_round': spaces.Discrete(4),  # 0-3 rounds
+            # Current player
             'current_player': spaces.Discrete(num_players),
-            # 初始角色 (one-hot)
+            # Original role (one-hot)
             'original_role': spaces.Discrete(num_roles),
-            # 已知信息 (向量表示)
+            # Known information (vector representation)
             'known_info': spaces.Box(
                 low=-np.inf, 
                 high=np.inf, 
-                shape=(20,),  # 具体大小需要根据项目需求调整
+                shape=(20,),  # Adjust size based on project needs
                 dtype=np.float32
             ),
-            # 发言历史 (向量表示)
+            # Speech history (vector representation)
             'speech_history': spaces.Box(
                 low=-np.inf, 
                 high=np.inf, 
-                shape=(self.config['max_steps_day'], 10),  # 具体大小需要根据项目需求调整
+                shape=(3 * num_players, 10),  # 3 rounds * num_players * feature_dim
                 dtype=np.float32
             )
         })
         
-        # 定义动作空间
-        # 由于不同阶段有不同的动作空间，这里使用一个离散空间来表示所有可能的动作
-        # 实际执行时需要根据当前阶段进行解析
+        # Define action space
+        # Since different phases have different action spaces, we use a discrete space to represent all possible actions
+        # Actions will be parsed based on current phase during execution
         
-        # 夜晚行动数量 (每个角色的行动数量之和)
+        # Number of night actions (sum of actions for each role)
         num_night_actions = sum(len(actions) for actions in self.config.get('night_actions', {}).values())
         
-        # 白天发言模板数量
+        # Number of speech templates
         num_speech_templates = len(self.config.get('speech_templates', [])) * num_players
         
-        # 投票目标数量 (可以投给任何玩家)
+        # Number of vote targets (can vote for any player)
         num_vote_targets = num_players
         
-        # 总动作数量
+        # Total number of actions
         total_actions = num_night_actions + num_speech_templates + num_vote_targets + 1  # +1 for NO_ACTION
         
         self.action_space = spaces.Discrete(total_actions)
     
     def reset(self, *, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
-        重置环境
+        Reset environment
         
         Args:
-            seed: 随机种子
-            options: 重置选项
+            seed: Random seed
+            options: Reset options
             
         Returns:
-            观察结果和信息字典
+            Observation and info dictionary
         """
         super().reset(seed=seed)
         
-        # 更新配置（如果有的话）
+        # Update configuration (if provided)
         if options and 'config' in options:
             self.config.update(options['config'])
             self._setup_spaces()
         
-        # 创建新的游戏状态
+        # Create new game state
         self.game_state = GameState(self.config)
         
-        # 重置当前玩家
+        # Reset current player
         self.current_player_id = self.game_state.get_current_player()
         
-        # 重置游戏结束标志
+        # Reset game over flag
         self.done = False
         
-        # 重置奖励
+        # Reset rewards
         self.rewards = defaultdict(float)
         
-        # 初始阶段设为夜晚
+        # Set initial phase to night
         self.game_state.phase = 'night'
         
-        # 渲染（如果需要）
+        # Render (if needed)
         if self.render_mode == 'human':
             self.render()
             
-        # 返回初始观察
+        # Return initial observation
         obs = self._get_observation()
         info = self._get_info()
         
@@ -154,318 +159,320 @@ class WerewolfEnv(gym.Env):
     
     def step(self, action: int) -> Tuple[Dict[str, Any], float, bool, bool, Dict[str, Any]]:
         """
-        执行动作
+        Execute action
         
         Args:
-            action: 动作ID
+            action: Action ID
             
         Returns:
             (observation, reward, terminated, truncated, info)
         """
         if self.done:
-            raise RuntimeError("环境已经结束，请先调用reset()重置环境")
+            raise RuntimeError("Environment is done, please call reset() first")
         
-        # 获取当前玩家
+        # Get current player
         player_id = self.current_player_id
         if player_id < 0:
-            raise RuntimeError("无效的当前玩家ID")
+            raise RuntimeError("Invalid current player ID")
         
-        # 解析并执行动作
+        # Parse and execute action
         action_obj = self._parse_action(action, player_id)
         result = self._execute_action(action_obj)
         
-        # 更新当前玩家
+        # Update current player
         self.current_player_id = self.game_state.get_current_player()
         
-        # 计算奖励
+        # Calculate reward
         reward = self._compute_reward(player_id, action_obj, result)
         self.rewards[player_id] += reward
         
-        # 检查游戏是否结束
+        # Check if game is over
         terminated = self.game_state.phase == 'end'
         self.done = terminated
         
-        # 检查是否超过最大步数
+        # Check if maximum steps exceeded
         truncated = False
         
-        # 获取观察和信息
+        # Get observation and info
         obs = self._get_observation()
         info = self._get_info()
         
-        # 渲染（如果需要）
+        # Render (if needed)
         if self.render_mode == 'human':
             self.render()
             
         return obs, reward, terminated, truncated, info
     
-    def _parse_action(self, action: int, player_id: int) -> Action:
+    def _parse_action(self, action: Union[int, Action], player_id: int) -> Action:
         """
-        解析动作ID为具体的动作对象
+        Parse action ID into specific action object
         
         Args:
-            action: 动作ID
-            player_id: 玩家ID
+            action: Action ID or action object
+            player_id: Player ID
             
         Returns:
-            动作对象
+            Action object
         """
-        # 这里需要根据具体项目需求实现动作解析
-        # 示例实现：
-        
-        # 获取当前阶段
+        # If already an action object, return directly
+        if isinstance(action, Action):
+            return action
+            
+        # Get current phase
         phase = self.game_state.phase
         
-        # 根据不同阶段解析动作
+        # Parse action based on different phases
         if phase == 'night':
-            # 夜晚行动
+            # Night action
             role = self.game_state.players[player_id]['original_role']
             
-            # 获取该角色可用的夜晚行动
+            # Get available night actions for this role
             available_actions = self.config.get('night_actions', {}).get(role, [])
             
             if not available_actions:
-                # 该角色没有夜晚行动
+                # Role has no night actions
                 return create_no_action(player_id)
             
-            # 选择行动
+            # Choose action
             action_index = action % len(available_actions)
             action_name = available_actions[action_index]
             
-            # 创建夜晚行动
-            # 注意：这里简化处理，实际上可能需要更多参数
+            # Create night action
+            # Note: This is simplified, might need more parameters in practice
             return create_night_action(player_id, role, action_name)
             
         elif phase == 'day':
-            # 白天发言
+            # Day speech - Modified to use templates
             templates = self.config.get('speech_templates', [])
             if not templates:
                 return create_no_action(player_id)
             
-            # 选择发言模板
+            # Choose speech template
             template_index = action % len(templates)
+            template = templates[template_index]
             
-            # 创建发言
-            # 注意：这里简化处理，实际上需要根据模板填充具体内容
-            speech_type = "CLAIM_ROLE"  # 示例
-            return create_speech(player_id, speech_type, role="villager")
+            # Determine target player (if template needs it)
+            target_id = (action // len(templates)) % self.config['num_players']
+            
+            # Create speech based on template type
+            if template == 'CLAIM_ROLE':
+                return create_speech(player_id, template, role="villager")
+            elif template == 'CLAIM_ACTION_RESULT':
+                return create_speech(player_id, template, role="seer", action="check_player", target=target_id, result="werewolf")
+            elif template == 'ACCUSE':
+                return create_speech(player_id, template, target_id=target_id, accused_role="werewolf")
+            elif template == 'DEFEND':
+                return create_speech(player_id, template, not_role="werewolf", reason="I'm innocent")
+            elif template == 'VOTE_INTENTION':
+                return create_speech(player_id, template, target_id=target_id)
+            else:
+                return create_no_action(player_id)
             
         elif phase == 'vote':
-            # 投票
+            # Vote - Modified for reversed victory conditions
             target_id = action % self.config['num_players']
             return create_vote(player_id, target_id)
             
-        # 默认返回无行动
+        # Default to no action
         return create_no_action(player_id)
     
     def _execute_action(self, action: Action) -> Dict[str, Any]:
         """
-        执行动作
+        Execute action and return result
         
         Args:
-            action: 动作对象
+            action: Action object
             
         Returns:
-            执行结果
+            Execution result dictionary
         """
-        result = {'success': False}
+        result = {'success': False, 'message': 'Unknown action'}
         
         if action.action_type == ActionType.NIGHT_ACTION:
-            # 夜晚行动
-            night_action = action  # type: NightAction
-            result = self.game_state.perform_night_action(night_action.action_params)
-            
+            if isinstance(action, NightAction):
+                result = self.game_state.perform_night_action(action.action_params)
+                
         elif action.action_type == ActionType.DAY_SPEECH:
-            # 白天发言
-            speech = action  # type: DaySpeech
-            self.game_state.record_speech(speech.player_id, {
-                'type': speech.speech_type,
-                'content': speech.content
-            })
-            result = {'success': True, 'speech_recorded': True}
-            
+            if isinstance(action, DaySpeech):
+                # Record speech content to game state
+                self.game_state.record_speech(action.player_id, action.content)
+                result = {'success': True, 'message': f'Player {action.player_id} completed speech'}
+                
         elif action.action_type == ActionType.VOTE:
-            # 投票
-            vote = action  # type: VoteAction
-            self.game_state.record_vote(vote.player_id, vote.target_id)
-            result = {'success': True, 'vote_recorded': True}
-            
+            if isinstance(action, VoteAction):
+                # Record vote to game state
+                self.game_state.record_vote(action.player_id, action.target_id)
+                result = {'success': True, 'message': f'Player {action.player_id} voted for player {action.target_id}'}
+                
         elif action.action_type == ActionType.NO_ACTION:
-            # 无行动
-            # 直接进入下一个玩家
+            # No action, proceed to next phase
             self.game_state.next_player()
-            result = {'success': True, 'no_action': True}
-        
+            result = {'success': True, 'message': 'No action'}
+            
         return result
     
     def _compute_reward(self, player_id: int, action: Action, result: Dict[str, Any]) -> float:
         """
-        计算奖励
+        Calculate reward function
         
         Args:
-            player_id: 玩家ID
-            action: 执行的动作
-            result: 执行结果
+            player_id: Player executing the action
+            action: Executed action
+            result: Action execution result
             
         Returns:
-            奖励值
+            Reward value
         """
         reward = 0.0
         
-        # 游戏结束时计算胜利奖励
-        if self.game_state.phase == 'end' and self.game_state.game_result is not None:
-            # 获取玩家所属阵营
+        # Basic reward: action success or failure
+        if result.get('success', False):
+            reward += 0.1
+        else:
+            reward -= 0.05
+            
+        # Game end reward
+        if self.game_state.phase == 'end':
+            # Get player role and team
             player_role = self.game_state.players[player_id]['current_role']
-            player_team = ROLE_TEAMS.get(player_role, 'villager_team')
+            player_team = ROLE_TEAMS.get(player_role, 'villager')
             
-            # 判断是否胜利
-            if player_team == self.game_state.game_result:
-                reward += self.config.get('reward_team_win', 1.0)
+            # Game result
+            game_result = self.game_state.game_result
+            
+            # Assign rewards based on team
+            if game_result == player_team:
+                # Victory
+                reward += 1.0
             else:
-                reward += self.config.get('reward_team_loss', -1.0)
-        
-        # 根据行动类型给予中间奖励
-        if action.action_type == ActionType.NIGHT_ACTION:
-            # 夜晚行动奖励
-            # 例如：正确识别角色的奖励
-            if result.get('success') and 'result' in result:
-                reward += self.config.get('reward_correct_identify', 0.0) * 0.5
+                # Defeat
+                reward -= 0.5
                 
-        elif action.action_type == ActionType.DAY_SPEECH:
-            # 白天发言奖励
-            # 例如：成功说服他人的奖励（这需要在后续投票中体现）
-            pass
-            
-        elif action.action_type == ActionType.VOTE:
-            # 投票奖励
-            # 在游戏结束时已经考虑了胜利奖励
-            pass
-        
+            # Special reward: extra reward for successful reversed voting
+            if player_team == 'werewolf' and game_result == 'werewolf':
+                # If werewolves won, check if this werewolf successfully guided villager votes
+                for voter_id, target_id in self.game_state.votes.items():
+                    voter_role = self.game_state.players[voter_id]['current_role']
+                    voter_team = ROLE_TEAMS.get(voter_role, 'villager')
+                    if voter_team == 'villager' and target_id in self.game_state.votes.values():
+                        # Villager was guided to vote, give werewolf extra reward
+                        reward += 0.3
+                        break
+                
         return reward
     
     def _get_observation(self) -> Dict[str, Any]:
         """
-        获取当前玩家的观察
+        Get current observation
         
         Returns:
-            观察字典
+            Observation dictionary for current player
         """
         if self.current_player_id < 0:
-            # 如果没有当前玩家，返回空观察
             return {}
-        
-        # 获取当前玩家的观察
+            
         return self.game_state.get_observation(self.current_player_id)
     
     def _get_info(self) -> Dict[str, Any]:
         """
-        获取额外信息
+        Get additional information
         
         Returns:
-            信息字典
+            Information dictionary
         """
         return {
             'phase': self.game_state.phase,
             'round': self.game_state.round,
+            'speech_round': self.game_state.speech_round,  # Add speech round information
             'current_player': self.current_player_id,
-            'rewards': dict(self.rewards),
-            'done': self.done
+            'cumulative_rewards': dict(self.rewards)
         }
     
     def render(self) -> Optional[Union[str, np.ndarray]]:
         """
-        渲染环境
+        Render environment
         
         Returns:
-            根据render_mode返回渲染结果
+            Different types of rendering results based on render mode
         """
         if self.render_mode is None:
             return None
             
-        if self.render_mode == 'ansi':
+        if self.render_mode == "ansi":
             return self._render_text()
             
-        # human模式下直接打印
-        print(self._render_text())
         return None
     
     def _render_text(self) -> str:
         """
-        生成文本渲染
+        Text rendering
         
         Returns:
-            文本渲染结果
+            Text representation of game state
         """
         if self.game_state is None:
-            return "环境尚未初始化"
+            return "Environment not initialized"
             
         lines = []
-        lines.append(f"===== 狼人杀游戏 - 轮次 {self.game_state.round} =====")
-        lines.append(f"当前阶段: {self.game_state.phase}")
-        lines.append(f"当前玩家: {self.current_player_id}")
+        lines.append("=" * 50)
+        lines.append(f"Game phase: {self.game_state.phase}")
+        lines.append(f"Current round: {self.game_state.round}")
         
-        # 玩家信息
-        lines.append("\n--- 玩家信息 ---")
+        if self.game_state.phase == 'day':
+            lines.append(f"Current speech round: {self.game_state.speech_round}/3")  # Show current speech round
+            
+        lines.append(f"Current player: {self.current_player_id}")
+        
+        # Player information
+        lines.append("\nPlayer states:")
         for i, player in enumerate(self.game_state.players):
-            role = "???" if i != self.current_player_id else player['original_role']
-            lines.append(f"玩家 {i}: 初始角色={role}")
-        
-        # 游戏状态
-        if self.game_state.phase == 'night':
-            lines.append("\n--- 夜晚行动 ---")
-            if self.current_player_id >= 0:
-                role = self.game_state.players[self.current_player_id]['original_role']
-                lines.append(f"玩家 {self.current_player_id} ({role}) 正在执行夜晚行动")
-        
-        elif self.game_state.phase == 'day':
-            lines.append("\n--- 白天发言 ---")
-            for speech in self.game_state.speech_history:
-                lines.append(f"玩家 {speech['player_id']} 说: {speech['content']}")
+            role_info = f"[Original role: {player['original_role']}]"
+            lines.append(f"  Player {i}: {role_info}")
             
-            if self.current_player_id >= 0:
-                lines.append(f"玩家 {self.current_player_id} 正在发言")
-        
-        elif self.game_state.phase == 'vote':
-            lines.append("\n--- 投票阶段 ---")
-            for voter, target in self.game_state.votes.items():
-                lines.append(f"玩家 {voter} 投票给 玩家 {target}")
+        # Speech history
+        if self.game_state.speech_history:
+            lines.append("\nSpeech history:")
+            for i, speech in enumerate(self.game_state.speech_history[-5:]):  # Only show last 5 entries
+                lines.append(f"  Round {speech['round']}, Player {speech['player_id']}: {speech['content']}")
                 
-            if self.current_player_id >= 0:
-                lines.append(f"玩家 {self.current_player_id} 正在投票")
-        
-        elif self.game_state.phase == 'end':
-            lines.append("\n--- 游戏结束 ---")
-            lines.append(f"胜利阵营: {self.game_state.game_result}")
+        # Voting status
+        if self.game_state.votes:
+            lines.append("\nVoting status:")
+            for voter, target in self.game_state.votes.items():
+                lines.append(f"  Player {voter} voted for Player {target}")
+                
+        # Game result
+        if self.game_state.phase == 'end':
+            lines.append("\nGame result:")
+            lines.append(f"  Winning team: {self.game_state.game_result}")
             
-            lines.append("\n最终角色:")
-            for i, player in enumerate(self.game_state.players):
-                lines.append(f"玩家 {i}: 初始角色={player['original_role']}, 最终角色={player['current_role']}")
-        
+        lines.append("=" * 50)
         return "\n".join(lines)
     
     def close(self) -> None:
-        """关闭环境"""
+        """Close environment"""
         pass
 
 
-# 示例使用
+# Example usage
 if __name__ == "__main__":
-    # 创建环境
+    # Create environment
     env = WerewolfEnv(render_mode="human")
     
-    # 重置环境
+    # Reset environment
     obs, info = env.reset()
     
-    # 模拟一些随机动作
+    # Simulate some random actions
     done = False
     while not done:
-        # 随机选择动作
+        # Randomly choose action
         action = env.action_space.sample()
         
-        # 执行动作
+        # Execute action
         obs, reward, terminated, truncated, info = env.step(action)
         
-        # 检查是否结束
+        # Check if done
         done = terminated or truncated
     
-    # 关闭环境
+    # Close environment
     env.close() 
