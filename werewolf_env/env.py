@@ -300,9 +300,19 @@ class WerewolfEnv(gym.Env):
                 
         elif action.action_type == ActionType.VOTE:
             if isinstance(action, VoteAction):
+                # Check if it's voting phase
+                if self.game_state.phase != 'vote':
+                    result = {'success': False, 'message': 'Voting is only allowed in the final round'}
+                    return result
+                
                 # Record vote to game state
-                self.game_state.record_vote(action.player_id, action.target_id)
-                result = {'success': True, 'message': f'Player {action.player_id} voted for player {action.target_id}'}
+                vote_success = self.game_state.record_vote(action.player_id, action.target_id)
+                if vote_success:
+                    result = {'success': True, 'message': f'Player {action.player_id} voted for player {action.target_id}'}
+                    # Move to next player only if vote was successful
+                    self.game_state.next_player()
+                else:
+                    result = {'success': False, 'message': f'Player {action.player_id} has already voted or invalid target'}
                 
         elif action.action_type == ActionType.NO_ACTION:
             # No action, proceed to next phase
@@ -321,45 +331,10 @@ class WerewolfEnv(gym.Env):
             result: Action execution result
             
         Returns:
-            Reward value
+            Reward value (always 0 as rewards are not used)
         """
-        reward = 0.0
-        
-        # Basic reward: action success or failure
-        if result.get('success', False):
-            reward += 0.1
-        else:
-            reward -= 0.05
-            
-        # Game end reward
-        if self.game_state.phase == 'end':
-            # Get player role and team
-            player_role = self.game_state.players[player_id]['current_role']
-            player_team = ROLE_TEAMS.get(player_role, 'villager')
-            
-            # Game result
-            game_result = self.game_state.game_result
-            
-            # Assign rewards based on team
-            if game_result == player_team:
-                # Victory
-                reward += 1.0
-            else:
-                # Defeat
-                reward -= 0.5
-                
-            # Special reward: extra reward for successful reversed voting
-            if player_team == 'werewolf' and game_result == 'werewolf':
-                # If werewolves won, check if this werewolf successfully guided villager votes
-                for voter_id, target_id in self.game_state.votes.items():
-                    voter_role = self.game_state.players[voter_id]['current_role']
-                    voter_team = ROLE_TEAMS.get(voter_role, 'villager')
-                    if voter_team == 'villager' and target_id in self.game_state.votes.values():
-                        # Villager was guided to vote, give werewolf extra reward
-                        reward += 0.3
-                        break
-                
-        return reward
+        # 由于不是强化学习环境，奖励始终为0
+        return 0.0
     
     def _get_observation(self) -> Dict[str, Any]:
         """

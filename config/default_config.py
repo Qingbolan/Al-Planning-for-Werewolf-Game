@@ -21,26 +21,23 @@ DEFAULT_GAME_CONFIG = {
     # Maximum speech length per player
     'max_speech_length': 5,
     
-    # Reward settings
-    'reward_team_win': 1.0,      # Team victory reward
-    'reward_team_loss': -1.0,    # Team defeat penalty
-    'reward_correct_identify': 0.2,  # Reward for correct role identification
-    'reward_successful_hide': 0.2,   # Reward for successful identity concealment
-    'reward_persuasion': 0.1,        # Reward for persuasion
-    
     # Observation space settings
     'obs_include_history': True,     # Whether to include history information
-    'obs_history_length': 5,         # History information length
+    'obs_history_length': 6,         # History information length
     
-    # Role assignment
+    # Role assignment - 确保特定角色分配
     'roles': [
-        'villager', 'villager',     # 2 villagers
-        'werewolf', 'werewolf',     # 2 werewolves
-        'seer',                     # 1 seer
-        'robber',                   # 1 robber
-        'troublemaker',             # 1 troublemaker
-        'minion',                   # 1 minion
-        'insomniac'                 # 1 insomniac
+        # 这三个角色一定会分配给玩家
+        'werewolf', 'werewolf',      # 2 werewolves (必定分配给玩家)
+        'minion',                    # 1 minion (必定分配给玩家)
+        
+        # 以下6个角色会随机分配：3个分配给剩余的玩家，3个进入中央牌堆
+        'villager',                  # 1 villager
+        'seer',                      # 1 seer
+        'robber',                    # 1 robber
+        'troublemaker',              # 1 troublemaker
+        'villager',                  # 1 more villager
+        'insomniac'                  # 1 insomniac
     ]
 }
 

@@ -15,7 +15,7 @@ from agents import (
     create_agent, create_rl_agent, HAS_RL_AGENT
 )
 from utils.visualizer import BeliefVisualizer
-from config.default_config import DEFAULT_GAME_CONFIG
+from game_setting import GameSettings, GameConfig, AgentType
 
 
 def set_seed(seed: int):
@@ -45,12 +45,12 @@ def parse_args():
     parser.add_argument('--max_speech_rounds', type=int, default=3, 
                        help='Number of speech rounds (3-round speech mechanism)')
     parser.add_argument('--reverse_vote_rules', action='store_true', default=True,
-                       help='Whether to use reversed voting rules (villagers voting leads to werewolf victory, and vice versa)')
+                       help='Whether to use reversed voting rules')
     
     # Agent configuration
     parser.add_argument('--agent_types', type=str, nargs='+', 
                        default=['random'],
-                       choices=['random', 'heuristic', 'rl'],
+                       choices=[t.value for t in AgentType],
                        help='Types of agents to use')
     
     # Training configuration
@@ -79,38 +79,33 @@ def parse_args():
     return parser.parse_args()
 
 
-def play_game(args):
+def play_game(game_config: GameConfig):
     """Run a single game"""
-    # Create configuration
-    config = DEFAULT_GAME_CONFIG.copy()
-    config.update({
-        'num_players': args.num_players,
-        'max_speech_rounds': args.max_speech_rounds,
-        'reverse_vote_rules': args.reverse_vote_rules
-    })
-    
-    print("Game configuration:", config)
+    print("Game configuration:", game_config)
     
     # Create environment
-    env = WerewolfEnv(config, render_mode="ansi" if args.render else None)
+    env = WerewolfEnv({
+        'num_players': game_config.num_players,
+        'max_speech_rounds': game_config.max_speech_rounds,
+        'reverse_vote_rules': game_config.reverse_vote_rules
+    }, render_mode="ansi" if game_config.render else None)
     
     # Create agents
     agents = []
-    for i in range(args.num_players):
-        agent_type = args.agent_types[i % len(args.agent_types)]
-        if agent_type == 'rl':
+    for i, agent_config in enumerate(game_config.agent_configs):
+        if agent_config.agent_type == AgentType.RL:
             # Check if RL agent module exists
             if not HAS_RL_AGENT:
                 print(f"Warning: RL agent module not implemented, using random agent instead")
-                agent = create_agent('random', i)
+                agent = create_agent(AgentType.RANDOM.value, i)
             else:
-                agent = create_rl_agent(i, args.device)
-                if args.load_model:
-                    agent.load_model(args.load_model)
+                agent = create_rl_agent(i, agent_config.device)
+                if agent_config.model_path:
+                    agent.load_model(agent_config.model_path)
         else:
-            agent = create_agent(agent_type, i)
+            agent = create_agent(agent_config.agent_type.value, i)
         agents.append(agent)
-        print(f"Created agent {i}: {agent_type}")
+        print(f"Created agent {i}: {agent_config.agent_type.value}")
     
     # Reset environment
     obs, info = env.reset()
@@ -128,23 +123,24 @@ def play_game(args):
     
     while not done and step_count < 1000:  # Add maximum step limit
         # Render
-        if args.render:
+        if game_config.render:
             rendered = env.render()
             if rendered:
                 print(rendered)
             time.sleep(0.5)  # Slow display
         
         # Visualize belief states
-        if args.visualize and hasattr(agents[0], 'belief_updater') and agents[0].belief_updater:
+        if game_config.visualize and hasattr(agents[0], 'belief_updater') and agents[0].belief_updater:
             believer_id = 0
             belief_visualizer = BeliefVisualizer()
             timestamp = int(time.time())
-            belief_visualizer.generate_belief_report(
-                agents[believer_id].belief_updater.belief_state,
-                env.game_state,
-                believer_id,
-                f"./visualizations/belief_{timestamp}.png"
+            belief_report = belief_visualizer.generate_belief_report(
+                agents[believer_id].belief_updater,
+                env.game_state
             )
+            # Save each plot in the report
+            for plot_name, plot_image in belief_report.items():
+                plot_image.save(f"./visualizations/{plot_name}_{timestamp}.png")
         
         # Get current player
         current_player_id = env.current_player_id
@@ -182,7 +178,7 @@ def play_game(args):
         step_count += 1
     
     # Game over
-    if args.render:
+    if game_config.render:
         rendered = env.render()
         if rendered:
             print(rendered)
@@ -213,21 +209,11 @@ def main():
     os.makedirs('./visualizations', exist_ok=True)
     
     # Create game configuration
-    game_config = DEFAULT_GAME_CONFIG.copy()
-    game_config.update({
-        'num_players': args.num_players,
-        'max_speech_rounds': args.max_speech_rounds,
-        'reverse_vote_rules': args.reverse_vote_rules
-    })
-    
-    # Check if RL agent exists and give warning if needed
-    if 'rl' in args.agent_types and not HAS_RL_AGENT:
-        print("Warning: RL agent module not implemented, will use random agent instead")
-        args.agent_types = ['random' if t == 'rl' else t for t in args.agent_types]
+    game_config = GameSettings.from_args(args)
     
     if args.mode == 'play':
         # Run single game
-        result = play_game(args)
+        result = play_game(game_config)
         print(f"Game result: {result}")
         
     elif args.mode == 'train':
