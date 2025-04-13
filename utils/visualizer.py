@@ -1,5 +1,5 @@
 """
-狼人杀游戏信念状态可视化工具
+Werewolf Game Belief State Visualization Tool
 """
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -13,71 +13,71 @@ from utils.belief_updater import BeliefState, RoleSpecificBeliefUpdater
 
 
 class BeliefVisualizer:
-    """信念状态可视化类"""
+    """Belief state visualization class"""
     
     @staticmethod
     def plot_belief_heatmap(belief_state: BeliefState) -> Image.Image:
         """
-        绘制信念状态热力图
+        Plot belief state heatmap
         
         Args:
-            belief_state: 信念状态对象
+            belief_state: Belief state object
             
         Returns:
-            热力图图像
+            Heatmap image
         """
         beliefs = belief_state.beliefs
         if not beliefs:
-            # 创建一个空图像
+            # Create an empty image
             fig, ax = plt.subplots(figsize=(8, 2))
-            ax.text(0.5, 0.5, "没有信念数据", horizontalalignment='center',
+            ax.text(0.5, 0.5, "No belief data", horizontalalignment='center',
                    verticalalignment='center', transform=ax.transAxes)
             ax.axis('off')
             
-            # 将图像转换为PIL Image
+            # Convert to PIL Image
             buf = io.BytesIO()
             plt.savefig(buf, format='png')
             plt.close(fig)
             buf.seek(0)
             return Image.open(buf)
         
-        # 收集所有玩家和所有角色
+        # Collect all players and roles
         players = list(beliefs.keys())
         all_roles = set()
         for player_beliefs in beliefs.values():
             all_roles.update(player_beliefs.keys())
         all_roles = sorted(list(all_roles))
         
-        # 创建数据矩阵
+        # Create data matrix
         data = np.zeros((len(players), len(all_roles)))
         for i, player_id in enumerate(players):
             for j, role in enumerate(all_roles):
                 data[i, j] = beliefs[player_id].get(role, 0.0)
         
-        # 创建热力图
+        # Create heatmap
         fig, ax = plt.subplots(figsize=(10, 6))
         im = ax.imshow(data, cmap=cm.Blues)
         
-        # 添加坐标轴标签
+        # Add axis labels
         ax.set_xticks(np.arange(len(all_roles)))
         ax.set_yticks(np.arange(len(players)))
         ax.set_xticklabels(all_roles, rotation=45, ha="right")
-        ax.set_yticklabels([f"玩家 {pid}" for pid in players])
+        ax.set_yticklabels([f"Player {pid}" for pid in players])
         
-        # 添加数值标签
+        # Add value labels
         for i in range(len(players)):
             for j in range(len(all_roles)):
                 text = ax.text(j, i, f"{data[i, j]:.2f}",
                               ha="center", va="center", color="black" if data[i, j] < 0.7 else "white")
         
-        # 添加颜色条和标题
+        # Add colorbar and title
         plt.colorbar(im)
-        ax.set_title("信念状态热力图")
+        ax.set_title("Belief State Heatmap")
         
-        # 调整布局
+        # Adjust layout
         plt.tight_layout()
         
-        # 将图像转换为PIL Image
+        # Convert to PIL Image
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         plt.close(fig)
@@ -87,59 +87,59 @@ class BeliefVisualizer:
     @staticmethod
     def plot_certain_roles(belief_state: BeliefState) -> Image.Image:
         """
-        绘制确定性角色信息
+        Plot certain role information
         
         Args:
-            belief_state: 信念状态对象
+            belief_state: Belief state object
             
         Returns:
-            图像
+            Image
         """
         certain_roles = belief_state.certain_roles
         
         if not certain_roles:
-            # 创建一个空图像
+            # Create an empty image
             fig, ax = plt.subplots(figsize=(8, 2))
-            ax.text(0.5, 0.5, "没有确定性角色信息", horizontalalignment='center',
+            ax.text(0.5, 0.5, "No certain role information", horizontalalignment='center',
                    verticalalignment='center', transform=ax.transAxes)
             ax.axis('off')
             
-            # 将图像转换为PIL Image
+            # Convert to PIL Image
             buf = io.BytesIO()
             plt.savefig(buf, format='png')
             plt.close(fig)
             buf.seek(0)
             return Image.open(buf)
         
-        # 创建条形图
+        # Create bar chart
         fig, ax = plt.subplots(figsize=(8, 6))
         
         players = list(certain_roles.keys())
         roles = [certain_roles[pid] for pid in players]
         
-        # 为不同角色分配不同颜色
+        # Assign different colors to different roles
         unique_roles = set(roles)
         colors = plt.cm.tab10(np.linspace(0, 1, len(unique_roles)))
         role_colors = {role: colors[i] for i, role in enumerate(unique_roles)}
         bar_colors = [role_colors[role] for role in roles]
         
-        ax.bar(range(len(players)), [1] * len(players), color=bar_colors, tick_label=[f"玩家 {pid}" for pid in players])
+        ax.bar(range(len(players)), [1] * len(players), color=bar_colors, tick_label=[f"Player {pid}" for pid in players])
         
-        # 添加角色标签
+        # Add role labels
         for i, (player, role) in enumerate(zip(players, roles)):
             ax.text(i, 0.5, role, ha='center', va='center', rotation=0, fontsize=10)
         
-        # 添加图例
+        # Add legend
         patches = [plt.Rectangle((0, 0), 1, 1, color=role_colors[role]) for role in unique_roles]
         ax.legend(patches, unique_roles, loc='upper right')
         
-        ax.set_title("确定性角色信息")
-        ax.set_ylabel("角色")
+        ax.set_title("Certain Role Information")
+        ax.set_ylabel("Role")
         
-        # 调整布局
+        # Adjust layout
         plt.tight_layout()
         
-        # 将图像转换为PIL Image
+        # Convert to PIL Image
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         plt.close(fig)
@@ -149,67 +149,67 @@ class BeliefVisualizer:
     @staticmethod
     def plot_most_likely_roles(belief_state: BeliefState) -> Image.Image:
         """
-        绘制每个玩家最可能的角色
+        Plot most likely role for each player
         
         Args:
-            belief_state: 信念状态对象
+            belief_state: Belief state object
             
         Returns:
-            图像
+            Image
         """
         beliefs = belief_state.beliefs
         
         if not beliefs:
-            # 创建一个空图像
+            # Create an empty image
             fig, ax = plt.subplots(figsize=(8, 2))
-            ax.text(0.5, 0.5, "没有信念数据", horizontalalignment='center',
+            ax.text(0.5, 0.5, "No belief data", horizontalalignment='center',
                    verticalalignment='center', transform=ax.transAxes)
             ax.axis('off')
             
-            # 将图像转换为PIL Image
+            # Convert to PIL Image
             buf = io.BytesIO()
             plt.savefig(buf, format='png')
             plt.close(fig)
             buf.seek(0)
             return Image.open(buf)
         
-        # 获取每个玩家最可能的角色
+        # Get most likely role for each player
         most_likely = {}
         for player_id in beliefs:
             role, prob = belief_state.get_most_likely_role(player_id)
             most_likely[player_id] = (role, prob)
         
-        # 创建条形图
+        # Create bar chart
         fig, ax = plt.subplots(figsize=(10, 6))
         
         players = list(most_likely.keys())
         probs = [most_likely[pid][1] for pid in players]
         roles = [most_likely[pid][0] for pid in players]
         
-        # 为不同角色分配不同颜色
+        # Assign different colors to different roles
         unique_roles = set(roles)
         colors = plt.cm.tab10(np.linspace(0, 1, len(unique_roles)))
         role_colors = {role: colors[i] for i, role in enumerate(unique_roles)}
         bar_colors = [role_colors[role] for role in roles]
         
-        ax.bar(range(len(players)), probs, color=bar_colors, tick_label=[f"玩家 {pid}" for pid in players])
+        ax.bar(range(len(players)), probs, color=bar_colors, tick_label=[f"Player {pid}" for pid in players])
         
-        # 添加角色标签
+        # Add role labels
         for i, (player, (role, prob)) in enumerate(zip(players, [most_likely[pid] for pid in players])):
             ax.text(i, prob / 2, role, ha='center', va='center', rotation=0, fontsize=10)
         
-        # 添加图例
+        # Add legend
         patches = [plt.Rectangle((0, 0), 1, 1, color=role_colors[role]) for role in unique_roles]
         ax.legend(patches, unique_roles, loc='upper right')
         
-        ax.set_title("最可能的角色")
-        ax.set_ylabel("概率")
+        ax.set_title("Most Likely Roles")
+        ax.set_ylabel("Probability")
         ax.set_ylim(0, 1.1)
         
-        # 调整布局
+        # Adjust layout
         plt.tight_layout()
         
-        # 将图像转换为PIL Image
+        # Convert to PIL Image
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         plt.close(fig)
@@ -219,62 +219,55 @@ class BeliefVisualizer:
     @staticmethod
     def plot_werewolf_probabilities(belief_state: BeliefState) -> Image.Image:
         """
-        绘制每个玩家是狼人的概率
+        Plot probability of each player being a werewolf
         
         Args:
-            belief_state: 信念状态对象
+            belief_state: Belief state object
             
         Returns:
-            图像
+            Image
         """
         beliefs = belief_state.beliefs
         
         if not beliefs:
-            # 创建一个空图像
+            # Create an empty image
             fig, ax = plt.subplots(figsize=(8, 2))
-            ax.text(0.5, 0.5, "没有信念数据", horizontalalignment='center',
+            ax.text(0.5, 0.5, "No belief data", horizontalalignment='center',
                    verticalalignment='center', transform=ax.transAxes)
             ax.axis('off')
             
-            # 将图像转换为PIL Image
+            # Convert to PIL Image
             buf = io.BytesIO()
             plt.savefig(buf, format='png')
             plt.close(fig)
             buf.seek(0)
             return Image.open(buf)
         
-        # 获取每个玩家是狼人的概率
+        # Get werewolf probability for each player
         werewolf_probs = {}
         for player_id in beliefs:
             werewolf_probs[player_id] = beliefs[player_id].get('werewolf', 0.0)
         
-        # 创建条形图
+        # Create bar chart
         fig, ax = plt.subplots(figsize=(10, 6))
         
         players = list(werewolf_probs.keys())
         probs = [werewolf_probs[pid] for pid in players]
         
-        # 根据概率设置颜色（概率越高颜色越深）
-        colors = plt.cm.Reds(np.array(probs))
+        ax.bar(range(len(players)), probs, tick_label=[f"Player {pid}" for pid in players])
         
-        ax.bar(range(len(players)), probs, color=colors, tick_label=[f"玩家 {pid}" for pid in players])
+        # Add probability labels
+        for i, (player, prob) in enumerate(zip(players, probs)):
+            ax.text(i, prob / 2, f"{prob:.2f}", ha='center', va='center', rotation=0, fontsize=10)
         
-        # 添加概率标签
-        for i, prob in enumerate(probs):
-            ax.text(i, prob + 0.02, f"{prob:.2f}", ha='center', va='bottom', rotation=0, fontsize=10)
-        
-        ax.set_title("狼人概率分布")
-        ax.set_ylabel("概率")
+        ax.set_title("Werewolf Probabilities")
+        ax.set_ylabel("Probability")
         ax.set_ylim(0, 1.1)
         
-        # 添加阈值线
-        ax.axhline(y=0.5, color='r', linestyle='--', alpha=0.5, label='阈值 (0.5)')
-        ax.legend()
-        
-        # 调整布局
+        # Adjust layout
         plt.tight_layout()
         
-        # 将图像转换为PIL Image
+        # Convert to PIL Image
         buf = io.BytesIO()
         plt.savefig(buf, format='png')
         plt.close(fig)
@@ -318,8 +311,8 @@ class BeliefVisualizer:
             ax1.text(0.5, i, original, va='center', ha='center')
         
         ax1.set_yticks(y_pos)
-        ax1.set_yticklabels([f"玩家 {info[0]}" for info in player_roles])
-        ax1.set_title('原始角色分布')
+        ax1.set_yticklabels([f"Player {info[0]}" for info in player_roles])
+        ax1.set_title('Original Role Distribution')
         ax1.set_xlim(0, 1)
         
         # 绘制当前角色
@@ -331,17 +324,17 @@ class BeliefVisualizer:
             ax2.text(0.5, i, current, va='center', ha='center')
         
         ax2.set_yticks(y_pos)
-        ax2.set_yticklabels([f"玩家 {info[0]}" for info in player_roles])
-        ax2.set_title('当前角色分布')
+        ax2.set_yticklabels([f"Player {info[0]}" for info in player_roles])
+        ax2.set_title('Current Role Distribution')
         ax2.set_xlim(0, 1)
         
         # 添加游戏状态信息
-        fig.suptitle(f"游戏状态 - 阶段: {game_state.phase}, 轮次: {game_state.round}", fontsize=16)
+        fig.suptitle(f"Game State - Phase: {game_state.phase}, Round: {game_state.round}", fontsize=16)
         
         # 添加中央牌堆信息
         if game_state.phase == 'end':
             # 游戏结束时显示中央牌堆
-            center_text = "中央牌堆: " + ", ".join(game_state.center_cards)
+            center_text = "Central Card Pile: " + ", ".join(game_state.center_cards)
             fig.text(0.5, 0.01, center_text, ha='center')
         
         # 调整布局
@@ -357,20 +350,20 @@ class BeliefVisualizer:
     @staticmethod
     def generate_belief_report(belief_updater: RoleSpecificBeliefUpdater, game_state: GameState) -> Dict[str, Image.Image]:
         """
-        生成完整的信念状态报告
+        Generate a comprehensive belief report
         
         Args:
-            belief_updater: 信念更新器
-            game_state: 游戏状态
+            belief_updater: Belief updater object
+            game_state: Game state object
             
         Returns:
-            包含各种可视化结果的字典
+            Dictionary of visualization images
         """
         belief_state = belief_updater.belief_state
         player_id = belief_updater.player_id
         
         report = {
-            'heatmap': BeliefVisualizer.plot_belief_heatmap(belief_state),
+            'belief_heatmap': BeliefVisualizer.plot_belief_heatmap(belief_state),
             'certain_roles': BeliefVisualizer.plot_certain_roles(belief_state),
             'most_likely': BeliefVisualizer.plot_most_likely_roles(belief_state),
             'werewolf_probs': BeliefVisualizer.plot_werewolf_probabilities(belief_state),

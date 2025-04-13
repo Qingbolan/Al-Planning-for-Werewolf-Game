@@ -4,6 +4,7 @@ Werewolf Game Action Definitions
 from typing import Dict, Any, List, Tuple, Optional
 from enum import Enum, auto
 from utils.common import validate_action
+import random
 
 
 class ActionType(Enum):
@@ -166,36 +167,92 @@ def create_speech(
         role = kwargs.get('role', 'villager')
         content['text'] = f"I am a {role}"  # Complete sentence
         content['role'] = role
+        content['type'] = speech_type
         
     elif speech_type == SpeechType.CLAIM_ACTION_RESULT.name:
         role = kwargs.get('role', 'villager')
         action = kwargs.get('action', '')
         target = kwargs.get('target', '')
         result = kwargs.get('result', '')
-        content['text'] = f"As a {role}, I {action} {target}, and the result is {result}"  # Complete sentence
+        
+        # 根据不同角色和行动提供更具体的表述
+        if role == 'seer':
+            if 'player' in str(target):
+                player_num = ''.join(filter(str.isdigit, str(target)))
+                content['text'] = f"As the Seer, I checked player {player_num} and saw they were a {result}"
+            else:
+                content['text'] = f"As the Seer, I looked at {target} and discovered {result}"
+        elif role == 'robber':
+            if 'player' in str(target):
+                player_num = ''.join(filter(str.isdigit, str(target)))
+                content['text'] = f"As the Robber, I stole from player {player_num} and got the {result} role"
+            else:
+                content['text'] = f"As the Robber, I stole a card and received the {result} role"
+        elif role == 'troublemaker':
+            if 'players' in str(target):
+                content['text'] = f"As the Troublemaker, I swapped the roles of {target}"
+            else:
+                content['text'] = f"As the Troublemaker, I switched the roles of {target}"
+        elif role == 'insomniac':
+            content['text'] = f"As the Insomniac, I woke up at the end of the night and saw my role was {result}"
+        else:
+            content['text'] = f"As a {role}, I {action} {target}, and found that {result}"
+            
         content['role'] = role
         content['action'] = action
         content['target'] = target
         content['result'] = result
+        content['type'] = speech_type
         
     elif speech_type == SpeechType.ACCUSE.name:
         target_id = kwargs.get('target_id', 0)
         accused_role = kwargs.get('accused_role', 'werewolf')
-        content['text'] = f"I think player {target_id} is a {accused_role}"  # Complete sentence
+        
+        # 更多变化的指控方式
+        accuse_phrases = [
+            f"I suspect player {target_id} is a {accused_role}",
+            f"I think player {target_id} is definitely a {accused_role}",
+            f"Based on their behavior, player {target_id} seems to be a {accused_role}",
+            f"Player {target_id} is acting suspicious, likely a {accused_role}"
+        ]
+        content['text'] = random.choice(accuse_phrases)
         content['target_id'] = target_id
         content['accused_role'] = accused_role
+        content['type'] = speech_type
         
     elif speech_type == SpeechType.DEFEND.name:
         not_role = kwargs.get('not_role', 'werewolf')
         reason = kwargs.get('reason', '')
-        content['text'] = f"I am not a {not_role} because {reason}"  # Complete sentence
+        
+        # 更多变化的辩护方式
+        if reason:
+            defend_phrases = [
+                f"I am not a {not_role} because {reason}",
+                f"There's no way I'm a {not_role}. {reason}",
+                f"I can assure everyone I'm not a {not_role}. {reason}",
+                f"Don't suspect me of being a {not_role}. {reason}"
+            ]
+            content['text'] = random.choice(defend_phrases)
+        else:
+            content['text'] = f"I am definitely not a {not_role}"
+            
         content['not_role'] = not_role
         content['reason'] = reason
+        content['type'] = speech_type
         
     elif speech_type == SpeechType.VOTE_INTENTION.name:
         target_id = kwargs.get('target_id', 0)
-        content['text'] = f"I plan to vote for player {target_id}"  # Complete sentence
+        
+        # 更多变化的投票意向表达
+        vote_phrases = [
+            f"I plan to vote for player {target_id}",
+            f"I'm voting for player {target_id}",
+            f"My vote goes to player {target_id}",
+            f"I think we should eliminate player {target_id}"
+        ]
+        content['text'] = random.choice(vote_phrases)
         content['target_id'] = target_id
+        content['type'] = speech_type
     
     # Add other possible content
     content.update({k: v for k, v in kwargs.items() if k not in content})

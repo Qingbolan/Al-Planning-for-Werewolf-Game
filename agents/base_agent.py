@@ -5,6 +5,7 @@ from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 import random
 from abc import ABC, abstractmethod
+from collections import defaultdict
 
 from werewolf_env.state import GameState, PlayerObservation
 from werewolf_env.actions import (
@@ -216,6 +217,34 @@ class BaseAgent(ABC):
     def log_action(self, action: Action):
         # Common action logging logic
         print(f"Agent {self.player_id} executes action {action}")
+
+    def get_action(self, game_state: GameState) -> Action:
+        """
+        获取动作 - 兼容训练器接口
+        
+        Args:
+            game_state: 游戏状态
+            
+        Returns:
+            Action
+        """
+        # 将GameState转换为观察结果格式
+        observation = {
+            'phase': game_state.phase,
+            'round': game_state.round,
+            'current_player': game_state.get_current_player(),
+            'speech_round': getattr(game_state, 'speech_round', 0),
+            'votes': getattr(game_state, 'votes', {}),
+        }
+        
+        # 加入角色信息
+        if self.player_id < len(game_state.players):
+            player_data = game_state.players[self.player_id]
+            observation['original_role'] = player_data['original_role']
+            observation['current_role'] = player_data['current_role']
+        
+        # 调用act方法获取动作
+        return self.act(observation)
 
 
 class RandomAgent(BaseAgent):
@@ -497,47 +526,206 @@ class HeuristicAgent(BaseAgent):
         return action
     
     def _vote_action(self, observation: Dict[str, Any]) -> Action:
-        """Rule-based voting"""
-        # Decide vote based on role and belief state
+        """
+        Choose voting target
+        
+        Args:
+            observation: Observation information
+            
+        Returns:
+            Voting action
+        """
+        # Check if it's voting phase
+        if observation.get('phase') != 'vote':
+            return create_no_action(self.player_id)
+            
+        # Check if player has already voted
+        if self.player_id in observation.get('votes', {}):
+            return create_no_action(self.player_id)
+            
+        # Choose target based on role and belief state
+        target_id = self._choose_vote_target(observation)
+        
+        # Create vote action
+        return create_vote(self.player_id, target_id)
+    
+    def _choose_vote_target(self, observation: Dict[str, Any]) -> int:
+        """
+        Intelligently choose a voting target
+        
+        Based on role and known information, use different voting strategies:
+        - Werewolf/Minion: Try to mislead voting, vote for villagers
+        - Villager/Special roles: Try to identify and vote for werewolves
+        
+        Args:
+            observation: Observation information
+            
+        Returns:
+            Target player ID
+        """
+        # Current role
         role = self.current_role
         
-        if role in ['werewolf', 'minion']:
-            # Werewolf faction tries to vote for players who appear to be seers
-            best_target = -1
-            highest_seer_prob = -1
+        # Get available players to vote for (excluding self and already-voted players)
+        available_players = [i for i in range(len(self.game_state.players)) 
+                           if i != self.player_id and i not in observation.get('votes', {}).values()]
+        if not available_players:
+            return -1
             
-            for player_id in range(len(self.game_state.players)):
-                if player_id == self.player_id:
-                    continue
-                
-                # Check if player is known to be werewolf (for werewolves)
-                if role == 'werewolf' and player_id in self.belief_updater.belief_state.certain_roles:
-                    if self.belief_updater.belief_state.certain_roles[player_id] == 'werewolf':
-                        continue  # Skip teammate
-                
-                seer_prob = self.get_role_probabilities(player_id).get('seer', 0.0)
-                if seer_prob > highest_seer_prob:
-                    highest_seer_prob = seer_prob
-                    best_target = player_id
+        # Execute different voting strategies based on role
+        if role == 'werewolf' or role == 'minion':
+            # Werewolf team strategy: Avoid voting for werewolf teammates, prioritize villagers who are already suspicious
             
-            if best_target >= 0 and highest_seer_prob > 0.3:
-                action = create_vote(self.player_id, best_target)
-            else:
-                action = create_no_action(self.player_id)
+            # Find all werewolves
+            werewolves = []
+            for i, player in enumerate(self.game_state.players):
+                if i != self.player_id and player['original_role'] in ['werewolf', 'minion']:
+                    werewolves.append(i)
+            
+            # Exclude werewolf teammates
+            safe_targets = [p for p in available_players if p not in werewolves]
+            if not safe_targets:
+                return random.choice(available_players)
+            
+            # Find which villager has been accused the most (prioritize already suspicious players)
+            accusations = defaultdict(int)
+            for speech in observation.get('speech_history', []):
+                content = speech.get('content', {})
+                if content.get('type') == 'ACCUSE':
+                    target = content.get('target_id')
+                    if target is not None and target in safe_targets:
+                        accusations[target] += 1
+            
+            # Modify: Reduce effectiveness by adding random chance
+            if random.random() < 0.4:  # 40% chance to make a suboptimal choice
+                return random.choice(safe_targets)
+                
+            # If there are accused villagers, choose the most accused one
+            if accusations:
+                max_accusations = max(accusations.values())
+                most_accused = [p for p, count in accusations.items() if count == max_accusations]
+                return random.choice(most_accused)
+            
+            # Otherwise randomly choose a villager
+            return random.choice(safe_targets)
         
-        # For villager faction or werewolf faction without specific target
         else:
-            suspected_player, prob = self.get_most_suspected_werewolf()
-            if suspected_player >= 0 and prob > 0.3:
-                action = create_vote(self.player_id, suspected_player)
-            else:
-                # If no clear target, random vote
-                target_id = self.get_random_player_except_self()
-                action = create_vote(self.player_id, target_id)
-        
-        self.log_action(action)
-        return action
-        
+            # Villager team strategy: Try to identify and vote for werewolves
+            
+            # Use belief system to track werewolf suspicion levels
+            werewolf_suspects = {}
+            
+            # Initialize suspicion value for each player
+            for player_id in range(len(self.game_state.players)):
+                if player_id != self.player_id and player_id in available_players:
+                    # Start with belief updater's probability if available
+                    if self.belief_updater:
+                        werewolf_prob = self.belief_updater.belief_state.beliefs[player_id].get('werewolf', 0.0)
+                        werewolf_suspects[player_id] = werewolf_prob * 15  # Increase weight for villager team (was 10)
+                    else:
+                        werewolf_suspects[player_id] = 0.0
+            
+            # 1. Seer-specific logic - use belief_updater information
+            if role == 'seer':
+                # Seer may have already checked someone as werewolf
+                most_suspected, prob = self.get_most_suspected_werewolf()
+                if most_suspected >= 0 and prob > 0.4:  # Reduced threshold to make it more sensitive (was 0.5)
+                    return most_suspected
+            
+            # 2. Analyze voting patterns
+            vote_history = observation.get('votes', {})
+            for voter_id, target_id in vote_history.items():
+                # If someone voted for me, they are more suspicious
+                if target_id == self.player_id and voter_id in available_players:
+                    werewolf_suspects[voter_id] += 4.0  # Increased suspicion value (was 3.0)
+                
+                # Analyze coordinated voting patterns
+                vote_counts = defaultdict(int)
+                for vote_target in vote_history.values():
+                    vote_counts[vote_target] += 1
+                
+                # If multiple players are voting for the same target (and it's not a werewolf),
+                # they might be coordinating as werewolves
+                if vote_counts[target_id] >= 2 and self.belief_updater:
+                    target_werewolf_prob = self.belief_updater.belief_state.beliefs[target_id].get('werewolf', 0.5)
+                    if target_werewolf_prob < 0.3 and voter_id in available_players:
+                        werewolf_suspects[voter_id] += 2.0  # Increased suspicion value (was 1.0)
+            
+            # 3. Analyze speech behavior
+            claimed_roles = {}
+            contradictions = defaultdict(int)
+            
+            for speech in observation.get('speech_history', []):
+                speaker_id = speech.get('player_id')
+                content = speech.get('content', {})
+                
+                # Track claimed roles
+                if content.get('type') == 'CLAIM_ROLE' and 'role' in content:
+                    claimed_role = content.get('role')
+                    if speaker_id not in claimed_roles:
+                        claimed_roles[speaker_id] = claimed_role
+                    elif claimed_roles[speaker_id] != claimed_role:
+                        # Contradicting claims increase suspicion
+                        contradictions[speaker_id] += 1
+                        if speaker_id in available_players:
+                            werewolf_suspects[speaker_id] += 5.0  # Increased suspicion (was 4.0)
+                    
+                    # Suspicious behavior: Claiming to be a special role when I am that role
+                    if speaker_id in available_players:
+                        if claimed_role == role and role in ['seer', 'robber', 'troublemaker', 'insomniac']:
+                            werewolf_suspects[speaker_id] += 7.0  # Increased suspicion (was 5.0)
+                        
+                        # Werewolves rarely claim to be werewolves
+                        if claimed_role == 'werewolf':
+                            werewolf_suspects[speaker_id] -= 3.0
+                
+                # Analyze accusations
+                if content.get('type') == 'ACCUSE':
+                    accuser = speaker_id
+                    accused = content.get('target_id')
+                    
+                    # If someone accuses me, they are more suspicious
+                    if accused == self.player_id and accuser in available_players:
+                        werewolf_suspects[accuser] += 3.0  # Increased suspicion (was 2.0)
+                    
+                    # Check for targeted accusations against special roles
+                    if accused in claimed_roles and claimed_roles[accused] in ['seer', 'robber', 'troublemaker']:
+                        # Werewolves often target special roles
+                        if accuser in available_players:
+                            werewolf_suspects[accuser] += 1.0  # Increased suspicion (was 0.5)
+            
+            # 4. Evaluate consistencies in action claims
+            for speaker_id, claimed_role in claimed_roles.items():
+                if speaker_id in available_players and self.belief_updater:
+                    # Compare claimed role with belief state
+                    role_prob = self.belief_updater.belief_state.beliefs[speaker_id].get(claimed_role, 0.0)
+                    if role_prob < 0.2:  # Low probability of having the claimed role
+                        werewolf_suspects[speaker_id] += 3.0  # Increased suspicion (was 2.0)
+            
+            # If suspicious targets exist, choose the most suspicious one
+            if werewolf_suspects:
+                max_suspect_value = max(werewolf_suspects.values())
+                # Only when suspicion is high enough
+                if max_suspect_value > 0:
+                    strongest_suspects = [p for p, v in werewolf_suspects.items() 
+                                          if v == max_suspect_value]
+                    return random.choice(strongest_suspects)
+            
+            # If no clear suspicious target, try to vote with the majority (safety in numbers)
+            vote_counts = defaultdict(int)
+            for target_id in observation.get('votes', {}).values():
+                if target_id in available_players:
+                    vote_counts[target_id] += 1
+            
+            if vote_counts:
+                max_votes = max(vote_counts.values())
+                if max_votes > 0:  # Vote with majority even if only one vote (was 1)
+                    most_voted = [p for p, count in vote_counts.items() if count == max_votes]
+                    return random.choice(most_voted)
+            
+            # If still no clear target, make a random choice
+            return random.choice(available_players)
+
 
 # Factory function to create specified type of agent
 def create_agent(agent_type: str, player_id: int) -> BaseAgent:

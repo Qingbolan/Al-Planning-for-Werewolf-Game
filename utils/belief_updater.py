@@ -1,6 +1,6 @@
 """
-狼人杀游戏信念状态更新器
-用于跟踪和更新玩家对其他玩家角色的信念
+Werewolf Game Belief State Updater
+Used to track and update players' beliefs about other players' roles
 """
 from typing import Dict, List, Any, Set, Tuple, Optional
 import numpy as np
@@ -12,63 +12,85 @@ from werewolf_env.actions import SpeechType
 
 
 class BeliefState:
-    """信念状态类，表示对游戏中角色分布的信念"""
+    """Belief state class, representing beliefs about role distribution in the game"""
     
     def __init__(self, game_state: GameState, player_id: int):
         """
-        初始化信念状态
+        Initialize belief state
         
         Args:
-            game_state: 游戏状态
-            player_id: 玩家ID
+            game_state: Game state
+            player_id: Player ID
         """
         self.player_id = player_id
         self.num_players = game_state.num_players
         self.possible_roles = list(set(game_state.roles))
         self.original_role = game_state.players[player_id]['original_role']
         
-        # 为每个玩家初始化角色概率分布（均匀分布）
+        # Initialize role probability distribution for each player (uniform distribution)
         self.beliefs = {}
         for p_id in range(self.num_players):
             if p_id == player_id:
-                # 对自己的角色有确定信念
+                # Certain belief about own role
                 self.beliefs[p_id] = {role: 1.0 if role == self.original_role else 0.0 
                                      for role in self.possible_roles}
             else:
-                # 对其他玩家的角色有均匀分布的信念
+                # Uniform belief distribution for other players' roles
                 self.beliefs[p_id] = {role: 1.0 / len(self.possible_roles) 
                                      for role in self.possible_roles}
         
-        # 确定的角色（通过夜晚行动或其他确定方式得知）
+        # Certain roles (known through night actions or other certain means)
         self.certain_roles = {player_id: self.original_role}
         
-        # 可能的中央牌堆角色
+        # Possible center card roles
         self.center_card_beliefs = {}
         for i in range(game_state.num_center_cards):
             self.center_card_beliefs[i] = {role: 1.0 / len(self.possible_roles) 
                                          for role in self.possible_roles}
         
-        # 已知的信息
+        # Known information
         self.known_info = []
         
-        # 记录声称的角色
+        # Record claimed roles
         self.claimed_roles = {}
         
-        # 记录特殊角色行动的声称
+        # Record special role action claims
         self.claimed_actions = defaultdict(list)
         
-        # 记录投票历史
+        # Record vote history
         self.vote_history = {}
     
+    def get_most_likely_role(self, player_id: int) -> Tuple[str, float]:
+        """
+        Get the most likely role and its probability for a player
+        
+        Args:
+            player_id: Player ID
+            
+        Returns:
+            Tuple[str, float]: (Most likely role, probability)
+        """
+        if player_id not in self.beliefs:
+            return None, 0.0
+            
+        # If player has a certain role
+        if player_id in self.certain_roles:
+            return self.certain_roles[player_id], 1.0
+            
+        # Otherwise return the role with highest probability
+        beliefs = self.beliefs[player_id]
+        max_role = max(beliefs.items(), key=lambda x: x[1])
+        return max_role[0], max_role[1]
+    
     def normalize_beliefs(self) -> None:
-        """归一化所有信念概率使其总和为1"""
+        """Normalize all belief probabilities to sum to 1"""
         for player_id in self.beliefs:
             total = sum(self.beliefs[player_id].values())
             if total > 0:
                 for role in self.beliefs[player_id]:
                     self.beliefs[player_id][role] /= total
         
-        # 归一化中央牌堆信念
+        # Normalize center card beliefs
         for card_idx in self.center_card_beliefs:
             total = sum(self.center_card_beliefs[card_idx].values())
             if total > 0:
@@ -77,85 +99,85 @@ class BeliefState:
     
     def update_with_certain_role(self, player_id: int, role: str) -> None:
         """
-        使用确定的角色信息更新信念
+        Update beliefs with certain role information
         
         Args:
-            player_id: 玩家ID
-            role: 确定的角色
+            player_id: Player ID
+            role: Certain role
         """
         if player_id < 0 or player_id >= self.num_players:
             return
             
-        # 更新确定角色字典
+        # Update certain roles dictionary
         self.certain_roles[player_id] = role
         
-        # 更新该玩家的信念分布
+        # Update belief distribution for this player
         for r in self.beliefs[player_id]:
             self.beliefs[player_id][r] = 1.0 if r == role else 0.0
         
-        # 更新已知信息
+        # Update known information
         self.known_info.append({
             'type': 'certain_role',
             'player_id': player_id,
             'role': role
         })
         
-        # 更新其他玩家的信念（同一角色不能由多个玩家担任）
+        # Update other players' beliefs (same role cannot be held by multiple players)
         for p_id in self.beliefs:
             if p_id != player_id:
                 if role in self.beliefs[p_id]:
-                    # 降低该玩家为该角色的概率（不完全排除以处理可能的不确定性）
+                    # Reduce probability of this player having this role (not completely exclude to handle uncertainty)
                     self.beliefs[p_id][role] *= 0.1
         
-        # 归一化信念
+        # Normalize beliefs
         self.normalize_beliefs()
     
     def update_with_center_card(self, card_idx: int, role: str) -> None:
         """
-        更新中央牌堆的信念
+        Update center card beliefs
         
         Args:
-            card_idx: 牌堆索引
-            role: 确定的角色
+            card_idx: Card index
+            role: Certain role
         """
         if card_idx not in self.center_card_beliefs:
             return
             
-        # 更新该卡牌的信念
+        # Update card beliefs
         for r in self.center_card_beliefs[card_idx]:
             self.center_card_beliefs[card_idx][r] = 1.0 if r == role else 0.0
         
-        # 更新已知信息
+        # Update known information
         self.known_info.append({
             'type': 'center_card',
             'card_idx': card_idx,
             'role': role
         })
         
-        # 更新玩家信念（该角色在中央牌堆，不太可能由玩家担任）
+        # Update player beliefs (role in center cards, unlikely to be held by players)
         for p_id in self.beliefs:
             if role in self.beliefs[p_id]:
-                # 降低该玩家为该角色的概率
+                # Reduce probability of player having this role
                 self.beliefs[p_id][role] *= 0.5
         
-        # 归一化信念
+        # Normalize beliefs
         self.normalize_beliefs()
     
     def update_with_role_swap(self, player_id1: int, player_id2: int) -> None:
         """
-        更新角色交换后的信念
+        Update beliefs after role swap
         
         Args:
-            player_id1: 第一个玩家ID
-            player_id2: 第二个玩家ID
+            player_id1: First player ID
+            player_id2: Second player ID
         """
         if player_id1 < 0 or player_id1 >= self.num_players or player_id2 < 0 or player_id2 >= self.num_players:
             return
             
-        # 交换信念
+        # Swap beliefs
         self.beliefs[player_id1], self.beliefs[player_id2] = self.beliefs[player_id2], self.beliefs[player_id1]
         
-        # 更新确定角色（如果有的话）
+        # Update certain roles (if any)
         if player_id1 in self.certain_roles and player_id2 in self.certain_roles:
             self.certain_roles[player_id1], self.certain_roles[player_id2] = self.certain_roles[player_id2], self.certain_roles[player_id1]
         elif player_id1 in self.certain_roles:
@@ -163,7 +185,7 @@ class BeliefState:
         elif player_id2 in self.certain_roles:
             self.certain_roles[player_id1] = self.certain_roles.pop(player_id2)
         
-        # 更新已知信息
+        # Update known information
         self.known_info.append({
             'type': 'role_swap',
             'player_id1': player_id1,
@@ -172,15 +194,15 @@ class BeliefState:
 
 
 class RoleSpecificBeliefUpdater:
-    """角色特定的信念更新器基类"""
+    """Base class for role-specific belief updaters"""
     
     def __init__(self, player_id: int, game_state: GameState):
         """
-        初始化信念更新器
+        Initialize belief updater
         
         Args:
-            player_id: 玩家ID
-            game_state: 游戏状态
+            player_id: Player ID
+            game_state: Game state
         """
         self.player_id = player_id
         self.game_state = game_state
@@ -189,37 +211,37 @@ class RoleSpecificBeliefUpdater:
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
         """
-        根据夜晚行动结果更新信念
+        Update beliefs based on night action results
         
         Args:
-            action_result: 行动结果
+            action_result: Action result
         """
-        # 基类方法，子类可以重写
+        # Base class method, can be overridden by subclasses
         pass
     
     def update_with_speech(self, speaker_id: int, speech_content: Dict[str, Any]) -> None:
         """
-        根据发言更新信念
+        Update beliefs based on speech
         
         Args:
-            speaker_id: 发言者ID
-            speech_content: 发言内容
+            speaker_id: Speaker ID
+            speech_content: Speech content
         """
-        # 记录玩家声称的角色
+        # Record player's claimed role
         if speech_content.get('type') == SpeechType.CLAIM_ROLE.name and 'role' in speech_content:
             self.belief_state.claimed_roles[speaker_id] = speech_content['role']
             
-            # 更新信念（轻微提高该角色的概率）
+            # Update beliefs (slightly increase probability of this role)
             role = speech_content['role']
             if role in self.belief_state.beliefs[speaker_id]:
-                # 增加该角色的概率
+                # Increase probability of this role
                 self.belief_state.beliefs[speaker_id][role] *= 1.2
                 
-                # 如果玩家声称自己是狼人（不太可能），降低相信度
+                # If player claims to be werewolf (unlikely), reduce belief
                 if role == 'werewolf':
                     self.belief_state.beliefs[speaker_id][role] *= 0.5
         
-        # 处理行动结果声称
+        # Handle action result claims
         elif speech_content.get('type') == SpeechType.CLAIM_ACTION_RESULT.name:
             if 'role' in speech_content and 'action' in speech_content and 'target' in speech_content and 'result' in speech_content:
                 self.belief_state.claimed_actions[speaker_id].append({
@@ -229,134 +251,134 @@ class RoleSpecificBeliefUpdater:
                     'result': speech_content['result']
                 })
                 
-                # 如果声称查验结果，更新信念
-                if speech_content['role'] == 'seer' and speech_content['action'] in ['查验', '查看']:
-                    # 尝试解析目标玩家ID
+                # If claiming check result, update beliefs
+                if speech_content['role'] == 'seer' and speech_content['action'] in ['check', 'view']:
+                    # Try to parse target player ID
                     target_id = -1
                     target = speech_content['target']
                     if isinstance(target, int):
                         target_id = target
-                    elif isinstance(target, str) and target.startswith('玩家') and target[2:].isdigit():
-                        target_id = int(target[2:])
+                    elif isinstance(target, str) and target.startswith('Player') and target[6:].isdigit():
+                        target_id = int(target[6:])
                     
                     if 0 <= target_id < self.game_state.num_players:
                         claimed_role = speech_content['result']
                         
-                        # 根据自己的角色和信息判断这个声称的可信度
+                        # Judge credibility of this claim based on own role and information
                         if self.role == 'seer':
-                            # 如果自己是预言家，知道这个声称是否真实
-                            # 这里简化处理，实际上需要根据自己的查验结果来判断
-                            credibility = 0.1  # 假设可信度低
+                            # If self is seer, know if this claim is true
+                            # Simplified handling, actually need to judge based on own check results
+                            credibility = 0.1  # Assume low credibility
                         else:
-                            # 如果自己不是预言家，根据其他信息来判断可信度
-                            credibility = 0.5  # 中等可信度
+                            # If not seer, judge credibility based on other information
+                            credibility = 0.5  # Medium credibility
                         
-                        # 更新目标玩家的角色信念
+                        # Update target player's role beliefs
                         if claimed_role in self.belief_state.beliefs[target_id]:
-                            # 按可信度调整概率
+                            # Adjust probability based on credibility
                             self.belief_state.beliefs[target_id][claimed_role] *= (1.0 + credibility)
         
-        # 处理指控
+        # Handle accusations
         elif speech_content.get('type') == SpeechType.ACCUSE.name:
             if 'target_id' in speech_content and 'accused_role' in speech_content:
                 target_id = speech_content['target_id']
                 accused_role = speech_content['accused_role']
                 
                 if 0 <= target_id < self.game_state.num_players and accused_role in self.belief_state.beliefs[target_id]:
-                    # 增加该玩家为被指控角色的概率
+                    # Increase probability of player being accused role
                     self.belief_state.beliefs[target_id][accused_role] *= 1.1
         
-        # 归一化信念
+        # Normalize beliefs
         self.belief_state.normalize_beliefs()
     
     def update_with_votes(self, votes: Dict[int, int]) -> None:
         """
-        根据投票更新信念
+        Update beliefs based on votes
         
         Args:
-            votes: 投票结果，键为投票者ID，值为目标ID
+            votes: Vote results, key is voter ID, value is target ID
         """
-        # 记录投票历史
+        # Record vote history
         self.belief_state.vote_history.update(votes)
         
-        # 分析投票模式
+        # Analyze voting patterns
         vote_counts = defaultdict(int)
         for target_id in votes.values():
             vote_counts[target_id] += 1
         
-        # 玩家投票给谁可能反映他们的阵营
+        # Who players vote for may reflect their alignment
         for voter_id, target_id in votes.items():
             if voter_id == self.player_id:
-                continue  # 跳过自己的投票
+                continue  # Skip own votes
                 
-            # 根据投票目标调整信念
-            # 如果投票给可能的狼人，增加该玩家是好人的概率
+            # Adjust beliefs based on vote target
+            # If voting for possible werewolf, increase probability of voter being good
             werewolf_prob = self.belief_state.beliefs[target_id].get('werewolf', 0.0)
             if werewolf_prob > 0.5:
-                # 增加投票者是村民阵营的概率
+                # Increase probability of voter being villager alignment
                 for role in ['villager', 'seer', 'robber', 'troublemaker', 'insomniac']:
                     if role in self.belief_state.beliefs[voter_id]:
                         self.belief_state.beliefs[voter_id][role] *= 1.1
                         
-                # 降低投票者是狼人阵营的概率
+                # Decrease probability of voter being werewolf alignment
                 for role in ['werewolf', 'minion']:
                     if role in self.belief_state.beliefs[voter_id]:
                         self.belief_state.beliefs[voter_id][role] *= 0.9
             
-            # 如果投票给可能的预言家，增加该玩家是狼人的概率
+            # If voting for possible seer, increase probability of voter being werewolf
             seer_prob = self.belief_state.beliefs[target_id].get('seer', 0.0)
             if seer_prob > 0.5:
-                # 增加投票者是狼人阵营的概率
+                # Increase probability of voter being werewolf alignment
                 for role in ['werewolf', 'minion']:
                     if role in self.belief_state.beliefs[voter_id]:
                         self.belief_state.beliefs[voter_id][role] *= 1.1
                         
-                # 降低投票者是村民阵营的概率
+                # Decrease probability of voter being villager alignment
                 for role in ['villager', 'seer', 'robber', 'troublemaker', 'insomniac']:
                     if role in self.belief_state.beliefs[voter_id]:
                         self.belief_state.beliefs[voter_id][role] *= 0.9
         
-        # 归一化信念
+        # Normalize beliefs
         self.belief_state.normalize_beliefs()
     
     def get_action_probabilities(self, action_space: List[Any]) -> Dict[Any, float]:
         """
-        获取行动概率分布
+        Get action probability distribution
         
         Args:
-            action_space: 可用行动空间
+            action_space: Available action space
             
         Returns:
-            行动概率分布
+            Action probability distribution
         """
-        # 基类方法，子类可以重写
+        # Base class method, can be overridden by subclasses
         return {action: 1.0 / len(action_space) for action in action_space}
 
 
 class VillagerBeliefUpdater(RoleSpecificBeliefUpdater):
-    """村民信念更新器"""
+    """Villager belief updater"""
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
-        """村民没有夜晚行动"""
+        """Villager has no night actions"""
         pass
 
 
 class WerewolfBeliefUpdater(RoleSpecificBeliefUpdater):
-    """狼人信念更新器"""
+    """Werewolf belief updater"""
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
-        """根据狼人夜晚行动结果更新信念"""
+        """Update beliefs based on werewolf night action results"""
         action = action_result.get('action', '')
         
         if action == 'check_other_werewolves':
-            # 更新其他狼人的信息
+            # Update other werewolves' information
             werewolves = action_result.get('result', [])
             for werewolf_id in werewolves:
                 if 0 <= werewolf_id < self.game_state.num_players:
                     self.belief_state.update_with_certain_role(werewolf_id, 'werewolf')
         
         elif action == 'check_center_card':
-            # 更新中央牌堆信息
+            # Update center card information
             card_index = action_result.get('card_index', -1)
             role = action_result.get('result', '')
             if card_index >= 0 and role:
@@ -364,21 +386,21 @@ class WerewolfBeliefUpdater(RoleSpecificBeliefUpdater):
 
 
 class SeerBeliefUpdater(RoleSpecificBeliefUpdater):
-    """预言家信念更新器"""
+    """Seer belief updater"""
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
-        """根据预言家夜晚行动结果更新信念"""
+        """Update beliefs based on seer night action results"""
         action = action_result.get('action', '')
         
         if action == 'check_player':
-            # 更新玩家角色信息
+            # Update player role information
             target_id = action_result.get('target', -1)
             result = action_result.get('result', '')
             if target_id >= 0 and result:
                 self.belief_state.update_with_certain_role(target_id, result)
         
         elif action == 'check_center_cards':
-            # 更新中央牌堆信息
+            # Update center card information
             targets = action_result.get('targets', [])
             results = action_result.get('result', [])
             for i, card_idx in enumerate(targets):
@@ -387,56 +409,56 @@ class SeerBeliefUpdater(RoleSpecificBeliefUpdater):
 
 
 class RobberBeliefUpdater(RoleSpecificBeliefUpdater):
-    """强盗信念更新器"""
+    """Robber belief updater"""
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
-        """根据强盗夜晚行动结果更新信念"""
+        """Update beliefs based on robber night action results"""
         action = action_result.get('action', '')
         
         if action == 'swap_role':
-            # 更新角色交换信息
+            # Update role swap information
             target_id = action_result.get('target', -1)
             result = action_result.get('result', '')
             if target_id >= 0 and result:
-                # 知道目标玩家原来的角色
+                # Know target player's original role
                 self.belief_state.update_with_certain_role(target_id, result)
                 
-                # 自己的角色变成了目标玩家的角色
+                # Own role becomes target player's role
                 self.belief_state.update_with_certain_role(self.player_id, result)
                 
-                # 目标玩家的角色变成了强盗
+                # Target player's role becomes robber
                 self.belief_state.update_with_certain_role(target_id, 'robber')
 
 
 class TroublemakerBeliefUpdater(RoleSpecificBeliefUpdater):
-    """捣蛋鬼信念更新器"""
+    """Troublemaker belief updater"""
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
-        """根据捣蛋鬼夜晚行动结果更新信念"""
+        """Update beliefs based on troublemaker night action results"""
         action = action_result.get('action', '')
         
         if action == 'swap_roles':
-            # 更新角色交换信息
+            # Update role swap information
             targets = action_result.get('targets', [])
             result = action_result.get('result', False)
             
             if len(targets) == 2 and result:
                 target_id1, target_id2 = targets
                 
-                # 知道两个玩家交换了角色，但不知道他们的具体角色
-                # 只能更新信念状态来反映这一点
+                # Know two players swapped roles, but don't know their specific roles
+                # Can only update belief state to reflect this
                 self.belief_state.update_with_role_swap(target_id1, target_id2)
 
 
 class MinionBeliefUpdater(RoleSpecificBeliefUpdater):
-    """爪牙信念更新器"""
+    """Minion belief updater"""
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
-        """根据爪牙夜晚行动结果更新信念"""
+        """Update beliefs based on minion night action results"""
         action = action_result.get('action', '')
         
         if action == 'check_werewolves':
-            # 更新狼人信息
+            # Update werewolf information
             werewolves = action_result.get('result', [])
             for werewolf_id in werewolves:
                 if 0 <= werewolf_id < self.game_state.num_players:
@@ -444,20 +466,270 @@ class MinionBeliefUpdater(RoleSpecificBeliefUpdater):
 
 
 class InsomniacBeliefUpdater(RoleSpecificBeliefUpdater):
-    """失眠者信念更新器"""
+    """Insomniac belief updater"""
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
-        """根据失眠者夜晚行动结果更新信念"""
+        """Update beliefs based on insomniac night action results"""
         action = action_result.get('action', '')
         
         if action == 'check_final_role':
-            # 更新自己的最终角色
+            # Update own final role
             result = action_result.get('result', '')
             if result:
                 self.belief_state.update_with_certain_role(self.player_id, result)
 
 
-# 角色信念更新器映射表
+class EnhancedBeliefUpdater(RoleSpecificBeliefUpdater):
+    """Enhanced belief updater with improved inference capabilities"""
+    
+    def __init__(self, player_id: int, game_state: GameState):
+        """Initialize the enhanced belief updater"""
+        super().__init__(player_id, game_state)
+        
+        # Track speech consistency and behavior patterns
+        self.player_speech_history = defaultdict(list)
+        self.player_vote_history = defaultdict(list)
+        self.player_consistency_score = defaultdict(float)
+        self.claimed_roles = {}
+        
+        # Track voting patterns
+        self.vote_patterns = defaultdict(list)
+        
+        # Track known information based on player's own observations
+        self.confirmed_information = {}
+        
+        # Initialize consistency scores (higher = more consistent/trustworthy)
+        for p_id in range(game_state.num_players):
+            if p_id != player_id:
+                self.player_consistency_score[p_id] = 0.5  # Neutral starting point
+    
+    def update_with_speech(self, speaker_id: int, speech_content: Dict[str, Any]) -> None:
+        """
+        Enhanced update based on speech with pattern analysis
+        
+        Args:
+            speaker_id: Speaker ID
+            speech_content: Speech content
+        """
+        # Call the base update method
+        super().update_with_speech(speaker_id, speech_content)
+        
+        # Track this speech in history
+        self.player_speech_history[speaker_id].append(speech_content)
+        
+        # Handle role claims
+        if speech_content.get('type') == SpeechType.CLAIM_ROLE.name and 'role' in speech_content:
+            claimed_role = speech_content['role']
+            
+            # Check for contradicting claims
+            if speaker_id in self.claimed_roles and self.claimed_roles[speaker_id] != claimed_role:
+                # Contradiction detected - decrease consistency score
+                self.player_consistency_score[speaker_id] -= 0.2
+                
+                # Increase probability of being werewolf
+                if 'werewolf' in self.belief_state.beliefs[speaker_id]:
+                    self.belief_state.beliefs[speaker_id]['werewolf'] *= 1.5
+            
+            # Record new claim
+            self.claimed_roles[speaker_id] = claimed_role
+            
+            # Special cases based on role claim
+            if claimed_role == 'werewolf':
+                # Claiming to be werewolf is unusual - likely village team trying to be funny or confuse
+                self.belief_state.beliefs[speaker_id]['werewolf'] *= 0.3
+                # Increase probability of being villager
+                for role in ['villager', 'seer', 'robber', 'troublemaker', 'insomniac']:
+                    if role in self.belief_state.beliefs[speaker_id]:
+                        self.belief_state.beliefs[speaker_id][role] *= 1.2
+            
+            # If claimed role is the same as the player's actual role
+            if claimed_role == self.role and claimed_role in ['seer', 'robber', 'troublemaker', 'insomniac']:
+                # Increase probability of being werewolf (they're likely lying)
+                if 'werewolf' in self.belief_state.beliefs[speaker_id]:
+                    self.belief_state.beliefs[speaker_id]['werewolf'] *= 1.8
+        
+        # Handle action result claims
+        elif speech_content.get('type') == SpeechType.CLAIM_ACTION_RESULT.name:
+            # Check if the claim is consistent with our knowledge
+            if 'role' in speech_content and 'action' in speech_content:
+                claimed_role = speech_content.get('role')
+                
+                # Check if this role claim is consistent with previous claims
+                if speaker_id in self.claimed_roles:
+                    if self.claimed_roles[speaker_id] != claimed_role:
+                        # Inconsistent role claims
+                        self.player_consistency_score[speaker_id] -= 0.2
+                        # Increase probability of being werewolf
+                        if 'werewolf' in self.belief_state.beliefs[speaker_id]:
+                            self.belief_state.beliefs[speaker_id]['werewolf'] *= 1.5
+                
+                # Update claimed roles
+                self.claimed_roles[speaker_id] = claimed_role
+                
+                # Check if action result is consistent with our knowledge
+                if self.player_id == speaker_id:
+                    # We know our own actions - no need to assess
+                    pass
+                elif claimed_role in ['seer', 'robber', 'troublemaker'] and 'target' in speech_content:
+                    # These roles could provide information we can verify
+                    if claimed_role == 'seer' and self.role == 'seer':
+                        # They're claiming to be seer, but we are the seer - they're lying
+                        self.player_consistency_score[speaker_id] -= 0.3
+                        # Increase probability of being werewolf significantly
+                        if 'werewolf' in self.belief_state.beliefs[speaker_id]:
+                            self.belief_state.beliefs[speaker_id]['werewolf'] *= 2.0
+        
+        # Handle accusations
+        elif speech_content.get('type') == SpeechType.ACCUSE.name:
+            if 'target_id' in speech_content:
+                target_id = speech_content['target_id']
+                
+                # If player accuses someone we know is on their team
+                if target_id in self.confirmed_information and speaker_id in self.confirmed_information:
+                    if self.confirmed_information[target_id] == self.confirmed_information[speaker_id]:
+                        # They're accusing someone on their own team - suspicious
+                        self.player_consistency_score[speaker_id] -= 0.1
+                
+                # If player accuses us, consider them more likely to be werewolf
+                if target_id == self.player_id:
+                    # Increase probability of being werewolf
+                    if 'werewolf' in self.belief_state.beliefs[speaker_id]:
+                        self.belief_state.beliefs[speaker_id]['werewolf'] *= 1.3
+        
+        # Normalize beliefs
+        self.belief_state.normalize_beliefs()
+    
+    def update_with_votes(self, votes: Dict[int, int]) -> None:
+        """
+        Enhanced update with votes with pattern detection
+        
+        Args:
+            votes: Vote results, key is voter ID, value is target ID
+        """
+        # Call the base update method
+        super().update_with_votes(votes)
+        
+        # Track all votes
+        for voter_id, target_id in votes.items():
+            self.player_vote_history[voter_id].append(target_id)
+            
+            # Add to vote patterns
+            self.vote_patterns[target_id].append(voter_id)
+        
+        # Analyze voting patterns for groups
+        voting_groups = self._identify_voting_groups(votes)
+        
+        # If we find suspicious voting patterns (e.g., all werewolves voting together)
+        for group in voting_groups:
+            # Skip single voters
+            if len(group) <= 1:
+                continue
+                
+            # Check if any player in this group is confirmed as werewolf
+            known_werewolf_in_group = False
+            for voter_id in group:
+                if voter_id in self.belief_state.certain_roles and self.belief_state.certain_roles[voter_id] == 'werewolf':
+                    known_werewolf_in_group = True
+                    break
+            
+            if known_werewolf_in_group:
+                # Increase werewolf probability for everyone in the group
+                for voter_id in group:
+                    if 'werewolf' in self.belief_state.beliefs[voter_id]:
+                        self.belief_state.beliefs[voter_id]['werewolf'] *= 1.4
+        
+        # Check for players who vote against the majority
+        vote_counts = defaultdict(int)
+        for target_id in votes.values():
+            vote_counts[target_id] += 1
+        
+        if vote_counts:
+            # Find the majority vote target
+            max_votes = max(vote_counts.values())
+            majority_targets = [target for target, count in vote_counts.items() if count == max_votes]
+            
+            # Check players voting against a clear majority
+            if len(majority_targets) == 1 and max_votes > 2:
+                majority_target = majority_targets[0]
+                
+                # Players who vote differently might be protecting werewolves
+                for voter_id, target_id in votes.items():
+                    if target_id != majority_target:
+                        # Make minor adjustment to consistency score
+                        self.player_consistency_score[voter_id] -= 0.05
+        
+        # Normalize beliefs
+        self.belief_state.normalize_beliefs()
+    
+    def _identify_voting_groups(self, votes: Dict[int, int]) -> List[List[int]]:
+        """
+        Identify groups of players voting for the same target
+        
+        Args:
+            votes: Vote dict
+            
+        Returns:
+            List of voter groups
+        """
+        target_to_voters = defaultdict(list)
+        
+        # Group voters by their targets
+        for voter_id, target_id in votes.items():
+            target_to_voters[target_id].append(voter_id)
+        
+        # Return groups with more than one voter
+        return [voters for target, voters in target_to_voters.items() if len(voters) > 1]
+    
+    def get_action_probabilities(self, action_space: List[Any]) -> Dict[Any, float]:
+        """
+        Get enhanced action probability distribution
+        
+        Args:
+            action_space: Available action space
+            
+        Returns:
+            Action probability distribution
+        """
+        # Implement more sophisticated logic based on game state
+        # For now, return uniform distribution
+        return {action: 1.0 / len(action_space) for action in action_space}
+    
+    def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
+        """
+        Update beliefs based on night action results
+        
+        Args:
+            action_result: Action result
+        """
+        super().update_with_night_action(action_result)
+        
+        # Process confirmed information from night actions
+        action_type = action_result.get('action', '')
+        
+        if self.role == 'seer' and action_type == 'check_player':
+            # Seer checked a player and knows their role
+            target_id = action_result.get('target_id')
+            result = action_result.get('result')
+            
+            if target_id is not None and result:
+                # Add to confirmed information
+                self.confirmed_information[target_id] = result
+                
+                # Update belief state with certain role
+                self.belief_state.update_with_certain_role(target_id, result)
+        
+        elif self.role == 'werewolf' and action_type == 'check_other_werewolves':
+            # Werewolf knows other werewolves
+            werewolves = action_result.get('result', [])
+            for werewolf_id in werewolves:
+                # Add to confirmed information
+                self.confirmed_information[werewolf_id] = 'werewolf'
+                
+                # Update belief state with certain role
+                self.belief_state.update_with_certain_role(werewolf_id, 'werewolf')
+
+
+# Role belief updater mapping table
 BELIEF_UPDATER_MAP = {
     'villager': VillagerBeliefUpdater,
     'werewolf': WerewolfBeliefUpdater,
@@ -471,20 +743,53 @@ BELIEF_UPDATER_MAP = {
 
 def create_belief_updater(player_id: int, game_state: GameState) -> RoleSpecificBeliefUpdater:
     """
-    根据玩家角色创建对应的信念更新器
+    Create a belief updater for a player based on their role
     
     Args:
-        player_id: 玩家ID
-        game_state: 游戏状态
+        player_id: Player ID
+        game_state: Game state
         
     Returns:
-        信念更新器实例
+        RoleSpecificBeliefUpdater instance
     """
-    if player_id < 0 or player_id >= len(game_state.players):
-        # 默认为村民信念更新器
-        return VillagerBeliefUpdater(player_id, game_state)
+    role = game_state.players[player_id]['original_role'] if player_id < len(game_state.players) else 'unknown'
     
-    role = game_state.players[player_id]['original_role']
-    updater_class = BELIEF_UPDATER_MAP.get(role, VillagerBeliefUpdater)
-    
-    return updater_class(player_id, game_state)
+    # Create role-specific belief updater
+    if role in BELIEF_UPDATER_MAP:
+        # First create a role-specific belief updater to handle unique logic
+        role_updater = BELIEF_UPDATER_MAP[role](player_id, game_state)
+        
+        # Then enhance it with the improved EnhancedBeliefUpdater
+        enhanced_updater = EnhancedBeliefUpdater(player_id, game_state)
+        
+        # Copy the role-specific knowledge to the enhanced updater
+        enhanced_updater.role = role
+        if hasattr(role_updater, 'belief_state') and hasattr(role_updater.belief_state, 'certain_roles'):
+            for player, certain_role in role_updater.belief_state.certain_roles.items():
+                enhanced_updater.belief_state.update_with_certain_role(player, certain_role)
+        
+        # Add special role-based enhancements
+        if role == 'villager' or role == 'seer' or role == 'robber' or role == 'troublemaker' or role == 'insomniac':
+            # Villager team gets better at detecting werewolves (improved accuracy)
+            for player_id in range(enhanced_updater.game_state.num_players):
+                if player_id != enhanced_updater.player_id:
+                    # Substantially reduce initial werewolf probability for village team members
+                    if 'werewolf' in enhanced_updater.belief_state.beliefs[player_id]:
+                        enhanced_updater.belief_state.beliefs[player_id]['werewolf'] *= 0.7
+                    
+                    # More aggressively detect inconsistent claims from potential werewolves
+                    enhanced_updater.player_consistency_score[player_id] = 0.7  # Start with higher trust baseline
+        elif role == 'werewolf' or role == 'minion':
+            # Slightly reduce werewolf team's ability to detect other werewolves (to balance gameplay)
+            for player_id in range(enhanced_updater.game_state.num_players):
+                if player_id != enhanced_updater.player_id:
+                    # Adjust beliefs to make werewolf team slightly less effective
+                    if 'villager' in enhanced_updater.belief_state.beliefs[player_id]:
+                        enhanced_updater.belief_state.beliefs[player_id]['villager'] *= 0.9
+        
+        # Normalize beliefs
+        enhanced_updater.belief_state.normalize_beliefs()
+        return enhanced_updater
+    else:
+        # Fallback to basic belief updater
+        return RoleSpecificBeliefUpdater(player_id, game_state)

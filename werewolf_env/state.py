@@ -10,6 +10,16 @@ from collections import defaultdict
 from werewolf_env.roles import create_role
 from utils.common import validate_state
 
+# Define night action roles
+NIGHT_ACTIONS = {
+    'werewolf': ['check_other_werewolves', 'check_center_card'],
+    'seer': ['check_player', 'check_center_cards'],
+    'robber': ['swap_role'],
+    'troublemaker': ['swap_roles'],
+    'minion': ['check_werewolves'],
+    'insomniac': ['check_final_role']
+}
+
 class GameState:
     """Game state class, maintains complete game state"""
     
@@ -32,7 +42,37 @@ class GameState:
         
         # Role assignment
         self.roles = copy.deepcopy(config['roles'])
-        random.shuffle(self.roles)
+        
+        # 分离关键角色（2个狼人和1个爪牙）和其他角色
+        critical_roles = []
+        other_roles = []
+        
+        # 先找出所有狼人和爪牙角色
+        werewolf_count = 0
+        minion_found = False
+        
+        for role in self.roles:
+            if role == 'werewolf' and werewolf_count < 2:
+                critical_roles.append(role)
+                werewolf_count += 1
+            elif role == 'minion' and not minion_found:
+                critical_roles.append(role)
+                minion_found = True
+            else:
+                other_roles.append(role)
+        
+        # 打乱非关键角色的顺序
+        random.shuffle(other_roles)
+        
+        # 确保关键角色在玩家手中（而不是中央牌堆）
+        player_roles = critical_roles + other_roles[:self.num_players - len(critical_roles)]
+        center_roles = other_roles[self.num_players - len(critical_roles):]
+        
+        # 打乱玩家角色的顺序
+        random.shuffle(player_roles)
+        
+        # 重新组合角色列表
+        self.roles = player_roles + center_roles
         
         # Player states
         self.players = []
@@ -59,6 +99,7 @@ class GameState:
         
         # Voting results
         self.votes = {}
+        self.has_voted = set()  # Track which players have voted
         
         # Game result
         self.game_result = None
@@ -68,15 +109,16 @@ class GameState:
         
         # Current night action role index
         self.night_action_index = 0
-        self.night_action_roles = []  # Initialize as empty list
         
-        # Speech rounds (Change part 1: Add speech round counter)
+        # Speech round counter
         self.speech_round = 0
-        self.max_speech_rounds = config.get('max_speech_rounds', 3)  # Get speech rounds from config, default to 3
+        self.max_speech_rounds = config.get('max_speech_rounds', 3)  # 默认为3轮，确保一致性
         
-        # Set initial phase to night and get night action roles
+        # Night action roles
+        self.night_action_roles = self._get_night_action_roles()
+        
+        # Set initial phase to night
         self.phase = 'night'
-        self.night_action_roles = self._get_night_action_roles()  # Get night action roles after setting phase
         
     def _get_night_action_roles(self) -> List[int]:
         """Get list of roles with night actions"""
@@ -89,7 +131,7 @@ class GameState:
         
         for role in role_order:
             for i, player in enumerate(self.players):
-                if player['original_role'] == role:
+                if player['original_role'] == role and role in NIGHT_ACTIONS:
                     night_roles.append(i)
         
         return night_roles
@@ -118,12 +160,13 @@ class GameState:
         
         elif self.phase == 'day':
             self.current_player = (self.current_player + 1) % self.num_players
-            # If all players have spoken in a round, start new round (Change part 2: Modify day phase logic to support three rounds of speech)
+            # If all players have spoken in a round, start new round
             if self.current_player == 0:
                 self.speech_round += 1
                 # If all three rounds of speech are completed, enter voting phase
                 if self.speech_round >= self.max_speech_rounds:
                     self.phase = 'vote'
+                    self.current_player = 0  # Start voting from player 0
             return self.current_player
         
         elif self.phase == 'vote':
@@ -224,19 +267,29 @@ class GameState:
         # Move to next player
         self.next_player()
     
-    def record_vote(self, voter_id: int, target_id: int) -> None:
+    def record_vote(self, player_id: int, target_id: int) -> bool:
         """
-        Record player vote
+        Record a player's vote
         
         Args:
-            voter_id: Voter ID
-            target_id: Target player ID
-        """
-        if 0 <= voter_id < self.num_players and 0 <= target_id < self.num_players:
-            self.votes[voter_id] = target_id
+            player_id: Voter's ID
+            target_id: Target player's ID
             
-            # Move to next player
-            self.next_player()
+        Returns:
+            bool: Whether the vote was successfully recorded
+        """
+        # Check if player has already voted
+        if player_id in self.has_voted:
+            return False
+            
+        # Check if target is valid
+        if target_id < 0 or target_id >= self.num_players or target_id == player_id:
+            return False
+            
+        # Record vote
+        self.votes[player_id] = target_id
+        self.has_voted.add(player_id)
+        return True
     
     def _determine_winner(self) -> str:
         """
@@ -269,20 +322,37 @@ class GameState:
             from config.default_config import ROLE_TEAMS
             voted_team = ROLE_TEAMS.get(voted_role, 'villager')
             
-            # Check team of each voter (Change part 3: Implement reversed voting rules)
-            werewolf_win = False
-            for voter_id, target_id in self.votes.items():
-                if target_id == voted_out:
-                    voter_role = self.players[voter_id]['current_role']
-                    voter_team = ROLE_TEAMS.get(voter_role, 'villager')
-                    
-                    # Reversed voting rules: If a villager team votes, werewolves win, and vice versa
-                    if voter_team == 'villager':
-                        werewolf_win = True
-                        break
+            # 使用配置中的反转规则设置
+            use_reverse_rule = self.config.get('reverse_vote_rules', False)
             
-            # Determine winner based on reversed rules
-            self.game_result = 'werewolf' if werewolf_win else 'villager'
+            if use_reverse_rule:
+                # 反转规则：统计投票情况
+                villager_votes = 0
+                werewolf_votes = 0
+                
+                for voter_id, target_id in self.votes.items():
+                    if target_id == voted_out:
+                        voter_role = self.players[voter_id]['current_role']
+                        voter_team = ROLE_TEAMS.get(voter_role, 'villager')
+                        
+                        if voter_team == 'villager':
+                            villager_votes += 1
+                        else:  # werewolf team
+                            werewolf_votes += 1
+                
+                # 反转投票规则：村民阵营投票多数，狼人获胜；狼人阵营投票多数，村民获胜
+                if villager_votes > werewolf_votes:
+                    # 村民投票多，狼人获胜
+                    self.game_result = 'werewolf'
+                elif werewolf_votes > villager_votes:
+                    # 狼人投票多，村民获胜
+                    self.game_result = 'villager'
+                else:
+                    # 平局则基于被投出者的阵营判定：投出狼人则村民胜，投出村民则狼人胜
+                    self.game_result = 'villager' if voted_team == 'werewolf' else 'werewolf'
+            else:
+                # 标准规则：被投出狼人则村民获胜，被投出村民则狼人获胜
+                self.game_result = 'villager' if voted_team == 'werewolf' else 'werewolf'
         else:
             # No one was voted out
             self.game_result = 'villager'
@@ -331,6 +401,20 @@ class GameState:
             'votes': self.votes,
             'game_result': self.game_result
         }
+        
+    def get_player_role(self, player_id: int) -> str:
+        """
+        获取指定玩家的当前角色
+        
+        Args:
+            player_id: 玩家ID
+            
+        Returns:
+            角色名称字符串
+        """
+        if 0 <= player_id < len(self.players):
+            return self.players[player_id]['current_role']
+        return "unknown"
 
 
 class PlayerObservation:
