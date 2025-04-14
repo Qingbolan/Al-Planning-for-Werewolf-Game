@@ -1,0 +1,93 @@
+/* 应用程序主样式 */
+@import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Courier Prime', monospace, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    background-color: #121212; /* 黑色背景作为底色 */
+}
+
+.App {
+    text-align: center;
+    min-height: 100vh;
+}
+
+.App-header {
+    background-color: #282c34;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(10px + 2vmin);
+    color: white;
+}
+
+.App-link {
+    color: #61dafb;
+}
+
+/* 游戏界面样式 */
+.game-container {
+    padding: 20px;
+    min-height: 100vh;
+    /* background-image: url(/background.png); */
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    color: #f8e4b7;
+    letter-spacing: 0.03em;
+}
+
+.player-card {
+    transition: all 0.3s ease;
+    background-color: rgba(20, 20, 30, 0.8) !important;
+    border: 1px solid rgba(77, 166, 255, 0.3);
+}
+
+.player-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* 游戏角色颜色 */
+.role-werewolf {
+    color: #ff5252;
+}
+
+.role-villager {
+    color: #66bb6a;
+}
+
+.role-seer {
+    color: #42a5f5;
+}
+
+.role-robber {
+    color: #ab47bc;
+}
+
+.role-troublemaker {
+    color: #ffa726;
+}
+
+/* 对话框样式 */
+.MuiDialog-paper {
+    background-color: rgba(20, 20, 30, 0.95) !important;
+    color: #f8e4b7 !important;
+    border: 1px solid rgba(77, 166, 255, 0.3);
+}
+
+/* 文本字段样式 */
+.MuiInputBase-root {
+    color: #f8e4b7 !important;
+}
+
+/* 纸张容器样式 */
+.MuiPaper-root {
+    background-color: rgba(20, 20, 30, 0.8) !important;
+    color: #f8e4b7 !important;
+}
