@@ -22,7 +22,12 @@ from agents.base_agent import RandomAgent, HeuristicAgent, create_agent
 from models.rl_agent import RLAgent, WerewolfNetwork
 from config.default_config import DEFAULT_GAME_CONFIG, ROLE_TEAMS
 
-# Configure logging
+# 确保日志目录存在
+os.makedirs("logs", exist_ok=True)
+os.makedirs("logs/game_histories", exist_ok=True)
+os.makedirs("logs/summaries", exist_ok=True)
+
+# 设置日志处理器
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -65,6 +70,16 @@ def parse_args():
     
     # Other parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    
+    # 添加角色配置参数
+    parser.add_argument('--role_config', type=str, default=None, 
+                        help='Path to role configuration JSON file')
+    parser.add_argument('--use_complete_roles', action='store_true',
+                        help='Use complete set of roles instead of just villagers and werewolves')
+    
+    # 添加时间戳参数,用于标识这次实验
+    parser.add_argument('--timestamp', type=str, default=time.strftime('%Y%m%d_%H%M%S'), 
+                        help='Timestamp for this experiment run')
     
     return parser.parse_args()
 
@@ -255,7 +270,56 @@ def create_agents(agent_type, env, model_path=None, device="cpu", werewolf_indic
     return agents
 
 
-def run_game_worker(agent_type, num_players=6, model_path=None, render=False, device="cpu", seed=None, env_config=None, agents=None):
+def setup_logging_directories(config_name, timestamp):
+    """设置基于配置名称和时间戳的日志目录结构
+    
+    Args:
+        config_name: 配置文件名称 (不含路径和扩展名)
+        timestamp: 时间戳
+        
+    Returns:
+        dict: 包含各种日志路径的字典
+    """
+    # 如果配置名称为None，使用'default'作为名称
+    if config_name is None:
+        config_name = 'default'
+    else:
+        # 如果是路径,只保留文件名(不含扩展名)
+        config_name = os.path.basename(config_name)
+        config_name = os.path.splitext(config_name)[0]
+    
+    # 创建基本目录结构
+    base_dir = f"logs/{config_name}/{timestamp}"
+    dirs = {
+        'base': base_dir,
+        'game_histories': f"{base_dir}/game_histories",
+        'summaries': f"{base_dir}/summaries",
+        'metadata': f"{base_dir}/metadata",
+    }
+    
+    # 创建所有目录
+    for dir_path in dirs.values():
+        os.makedirs(dir_path, exist_ok=True)
+    
+    # 设置主日志文件
+    main_log_path = f"{base_dir}/game_logs.log"
+    
+    # 更新日志处理器
+    for handler in logging.root.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            handler.close()
+            logging.root.removeHandler(handler)
+    
+    # 添加新的文件处理器
+    file_handler = logging.FileHandler(main_log_path)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logging.root.addHandler(file_handler)
+    
+    # 返回路径字典
+    return dirs
+
+
+def run_game_worker(agent_type, num_players=6, model_path=None, render=False, device="cpu", seed=None, env_config=None, agents=None, log_dirs=None):
     """Run single game worker function
     
     Args:
@@ -267,6 +331,7 @@ def run_game_worker(agent_type, num_players=6, model_path=None, render=False, de
         seed: Random seed
         env_config: Environment configuration
         agents: Pre-defined agent list
+        log_dirs: 日志目录字典
         
     Returns:
         dict: Game result
@@ -280,7 +345,14 @@ def run_game_worker(agent_type, num_players=6, model_path=None, render=False, de
     
     # 创建独立的游戏日志记录器
     game_id = int(time.time() * 1000) % 10000000  # 生成唯一的游戏ID
-    game_log_path = f"logs/game_histories/game_{agent_type}_seed{seed}_{game_id}.log"
+    
+    # 使用新的日志目录结构
+    if log_dirs and 'game_histories' in log_dirs:
+        game_log_path = f"{log_dirs['game_histories']}/game_{agent_type}_seed{seed}_{game_id}.log"
+    else:
+        # 向后兼容
+        game_log_path = f"logs/game_histories/game_{agent_type}_seed{seed}_{game_id}.log"
+    
     os.makedirs(os.path.dirname(game_log_path), exist_ok=True)
     
     # 创建文件处理器
@@ -653,7 +725,8 @@ def run_game_worker(agent_type, num_players=6, model_path=None, render=False, de
     return result
 
 
-def test_agent_type(agent_type, num_games=100, num_players=6, model_path=None, render=False, device="cpu", num_workers=1, random_seed=42):
+def test_agent_type(agent_type, num_games=100, num_players=6, model_path=None, render=False, 
+                   device="cpu", num_workers=1, random_seed=42, role_config=None, use_complete_roles=False, log_dirs=None):
     """Test specific type of agent
     
     Args:
@@ -665,6 +738,9 @@ def test_agent_type(agent_type, num_games=100, num_players=6, model_path=None, r
         device: Computing device
         num_workers: Number of parallel worker threads
         random_seed: Random seed
+        role_config: Path to role configuration file
+        use_complete_roles: Whether to use complete set of roles
+        log_dirs: 日志目录字典
         
     Returns:
         dict: Test result statistics
@@ -673,7 +749,12 @@ def test_agent_type(agent_type, num_games=100, num_players=6, model_path=None, r
     logger.info(f"Player number: {num_players}, Computing device: {device}, Parallel threads: {num_workers}")
     
     # 创建汇总日志CSV文件
-    summary_log_path = f"logs/summary_{agent_type}_{num_games}games_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+    if log_dirs and 'summaries' in log_dirs:
+        summary_log_path = f"{log_dirs['summaries']}/summary_{agent_type}_{num_games}games.csv"
+    else:
+        # 向后兼容
+        summary_log_path = f"logs/summary_{agent_type}_{num_games}games_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+    
     with open(summary_log_path, 'w') as summary_file:
         # 写入CSV头
         summary_file.write("game_id,agent_type,seed,winner,game_length,actual_steps,night_steps,day_steps,vote_steps,werewolf_count,villager_count,run_time,log_file\n")
@@ -688,13 +769,86 @@ def test_agent_type(agent_type, num_games=100, num_players=6, model_path=None, r
         'max_speech_rounds': 3,  # 固定发言轮数为3轮
     })
     
-    # 配置固定的狼人数量，避免随机性
-    num_werewolves = max(1, num_players // 3)
-    num_villagers = num_players - num_werewolves
+    # 加载角色配置或使用完整角色集
+    if role_config:
+        try:
+            with open(role_config, 'r') as f:
+                role_settings = json.load(f)
+            logger.info(f"Loaded role configuration from {role_config}")
+            
+            # 获取所有角色和中央牌数量
+            all_roles = role_settings.get('all_roles', [])
+            center_card_count = role_settings.get('center_card_count', 3)
+            
+            # 检查是否有必须分配给玩家的角色
+            required_player_roles = role_settings.get('required_player_roles', [])
+            enforce_required_roles = role_settings.get('enforce_required_roles', False)
+            
+            if enforce_required_roles and required_player_roles:
+                # 如果启用强制分配必要角色
+                logger.info(f"Enforcing required player roles: {required_player_roles}")
+                
+                # 设置环境配置
+                base_env_config['roles'] = all_roles
+                base_env_config['center_card_count'] = center_card_count
+                base_env_config['required_player_roles'] = required_player_roles
+                base_env_config['enforce_required_roles'] = True
+                
+                logger.info(f"Using role configuration with required player roles: {required_player_roles}")
+            else:
+                # 常规角色配置
+                base_env_config['roles'] = all_roles
+                base_env_config['center_card_count'] = center_card_count
+                logger.info(f"Using role configuration: {all_roles} with {center_card_count} center cards")
+        except Exception as e:
+            logger.error(f"Failed to load role configuration: {e}")
+            logger.info("Falling back to default role configuration")
+            use_complete_roles = True  # 回退到完整角色集配置
     
-    # 创建固定的角色列表，但每局游戏会使用不同的随机种子打乱分配
-    base_roles = ['werewolf'] * num_werewolves + ['villager'] * num_villagers
-    base_env_config['roles'] = base_roles.copy()  # 使用复制避免引用问题
+    # 使用完整角色集（预设的标准角色分配）
+    if use_complete_roles:
+        # 使用完整的标准角色集（与图片一致）
+        all_roles = [
+            'villager', 'villager',  # 2个村民
+            'werewolf', 'werewolf',  # 2个狼人
+            'minion',                # 1个爪牙
+            'seer',                  # 1个预言家
+            'troublemaker',          # 1个捣蛋鬼
+            'robber',                # 1个强盗
+            'insomniac'              # 1个失眠者
+        ]
+        # 计算中央牌数量 (总角色数 - 玩家数)
+        center_card_count = max(0, len(all_roles) - num_players)
+        base_env_config['roles'] = all_roles
+        base_env_config['center_card_count'] = center_card_count
+        logger.info(f"Using complete role set: {all_roles} with {center_card_count} center cards")
+    # 如果没有特殊配置，使用简单的村民/狼人分配
+    elif not role_config:
+        # 配置固定的狼人数量，避免随机性
+        num_werewolves = max(1, num_players // 3)
+        num_villagers = num_players - num_werewolves
+        
+        # 创建固定的角色列表，但每局游戏会使用不同的随机种子打乱分配
+        base_roles = ['werewolf'] * num_werewolves + ['villager'] * num_villagers
+        base_env_config['roles'] = base_roles.copy()  # 使用复制避免引用问题
+        base_env_config['center_card_count'] = 0  # 没有中央牌
+        logger.info(f"Using simple role configuration: {num_werewolves} werewolves, {num_villagers} villagers, 0 center cards")
+    
+    # 手动调整角色顺序，使关键角色更可能分配给玩家
+    if role_config and 'simple_roles' in role_config:
+        # 通过使用多个重复的必要角色加大它们被分配给玩家的概率
+        all_roles = base_env_config.get('roles', [])
+        # 确保狼人和爪牙出现在列表前面，增加它们被分配给玩家的概率
+        critical_roles = []
+        other_roles = []
+        for role in all_roles:
+            if role in ['werewolf', 'minion']:
+                critical_roles.append(role)
+            else:
+                other_roles.append(role)
+        # 重新排序角色列表
+        base_env_config['roles'] = critical_roles + other_roles
+        logger.info(f"Reordered roles to prioritize critical roles: {base_env_config['roles']}")
     
     # Prepare argument list
     args_list = []
@@ -703,7 +857,7 @@ def test_agent_type(agent_type, num_games=100, num_players=6, model_path=None, r
         game_seed = random_seed + i
         game_env_config = base_env_config.copy()
         
-        args_list.append((agent_type, num_players, model_path, render and i == 0, device, game_seed, game_env_config))
+        args_list.append((agent_type, num_players, model_path, render and i == 0, device, game_seed, game_env_config, None, log_dirs))
         
     # Run games
     start_time = time.time()
@@ -848,7 +1002,7 @@ def append_result_to_summary(summary_path, result, agent_type):
         summary_file.write(row)
 
 
-def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4, render=False, scenario='all_scenarios'):
+def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4, render=False, scenario='all_scenarios', role_config=None, use_complete_roles=False, log_dirs=None):
     """Test specific scenario
     
     Test different agent combinations for specified scenarios:
@@ -860,6 +1014,9 @@ def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4,
         num_workers: Number of parallel worker threads
         render: Whether to render
         scenario: Specified test scenario
+        role_config: Path to role configuration file
+        use_complete_roles: Whether to use complete set of roles
+        log_dirs: 日志目录字典
         
     Returns:
         Test result statistics
@@ -874,8 +1031,8 @@ def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4,
     if scenario == 'all_scenarios' or scenario == 'random_vs_heuristic':
         # Test random vs heuristic
         print("\nTest: All random vs All heuristic agents")
-        random_stats = test_agent_type('random', num_games, num_players, None, render, device, num_workers)
-        heuristic_stats = test_agent_type('heuristic', num_games, num_players, None, render, device, num_workers)
+        random_stats = test_agent_type('random', num_games, num_players, None, render, device, num_workers, role_config=role_config, use_complete_roles=use_complete_roles, log_dirs=log_dirs)
+        heuristic_stats = test_agent_type('heuristic', num_games, num_players, None, render, device, num_workers, role_config=role_config, use_complete_roles=use_complete_roles, log_dirs=log_dirs)
         results['random'] = random_stats
         results['heuristic'] = heuristic_stats
     
@@ -889,7 +1046,10 @@ def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4,
             None,  # model_path
             render,
             device,
-            num_workers
+            num_workers,
+            role_config=role_config,
+            use_complete_roles=use_complete_roles,
+            log_dirs=log_dirs
         )
         results['random_villager_heuristic_werewolf'] = scenario1_results
     
@@ -903,7 +1063,10 @@ def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4,
             None,  # model_path
             render,
             device,
-            num_workers
+            num_workers,
+            role_config=role_config,
+            use_complete_roles=use_complete_roles,
+            log_dirs=log_dirs
         )
         results['heuristic_villager_random_werewolf'] = scenario2_results
         
@@ -917,7 +1080,10 @@ def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4,
             None,  # model_path
             render,
             device,
-            num_workers
+            num_workers,
+            role_config=role_config,
+            use_complete_roles=use_complete_roles,
+            log_dirs=log_dirs
         )
         results['random_mix'] = random_mix_results
     
@@ -936,7 +1102,11 @@ def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4,
             metadata['summary_logs'].append(result['summary_log'])
             
     # 保存测试元数据
-    metadata_path = f"logs/scenario_test_metadata_{scenario}_{num_games}_{time.strftime('%Y%m%d_%H%M%S')}.json"
+    if log_dirs and 'metadata' in log_dirs:
+        metadata_path = f"{log_dirs['metadata']}/scenario_test_metadata_{scenario}_{num_games}.json"
+    else:
+        metadata_path = f"logs/scenario_test_metadata_{scenario}_{num_games}_{time.strftime('%Y%m%d_%H%M%S')}.json"
+    
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
     print(f"\nScenario test metadata saved to {metadata_path}")
@@ -944,7 +1114,7 @@ def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4,
     return results
 
 
-def compare_agent_types(num_games, num_players, device="cpu", num_workers=4, render=False):
+def compare_agent_types(num_games, num_players, device="cpu", num_workers=4, render=False, role_config=None, use_complete_roles=False, log_dirs=None):
     """Compare different types of agents
     
     Args:
@@ -953,6 +1123,9 @@ def compare_agent_types(num_games, num_players, device="cpu", num_workers=4, ren
         device: Computing device
         num_workers: Number of parallel worker threads
         render: Whether to render
+        role_config: Path to role configuration file
+        use_complete_roles: Whether to use complete set of roles
+        log_dirs: 日志目录字典
         
     Returns:
         Comparison result
@@ -963,29 +1136,29 @@ def compare_agent_types(num_games, num_players, device="cpu", num_workers=4, ren
     
     # 1. Test all players are random agents
     print("\nTest scenario 1: All players are random agents")
-    random_stats = test_agent_type('random', num_games, num_players, None, render, device, num_workers)
+    random_stats = test_agent_type('random', num_games, num_players, None, render, device, num_workers, role_config=role_config, use_complete_roles=use_complete_roles, log_dirs=log_dirs)
     results['random'] = random_stats
     
     # 2. Test all players are heuristic agents
     print("\nTest scenario 2: All players are heuristic agents")
-    heuristic_stats = test_agent_type('heuristic', num_games, num_players, None, render, device, num_workers)
+    heuristic_stats = test_agent_type('heuristic', num_games, num_players, None, render, device, num_workers, role_config=role_config, use_complete_roles=use_complete_roles, log_dirs=log_dirs)
     results['heuristic'] = heuristic_stats
     
     # 3. Test villagers use random agents, werewolves use heuristic agents
     print("\nTest scenario 3: Villagers use random agents, werewolves use heuristic agents")
     random_villager_heuristic_werewolf_stats = test_agent_type('random_villager_heuristic_werewolf', num_games, num_players, 
-                                                      None, render, device, num_workers)
+                                                      None, render, device, num_workers, role_config=role_config, use_complete_roles=use_complete_roles, log_dirs=log_dirs)
     results['random_villager_heuristic_werewolf'] = random_villager_heuristic_werewolf_stats
     
     # 4. Test villagers use heuristic agents, werewolves use random agents
     print("\nTest scenario 4: Villagers use heuristic agents, werewolves use random agents")
     heuristic_villager_random_werewolf_stats = test_agent_type('heuristic_villager_random_werewolf', num_games, num_players,
-                                                     None, render, device, num_workers)
+                                                     None, render, device, num_workers, role_config=role_config, use_complete_roles=use_complete_roles, log_dirs=log_dirs)
     results['heuristic_villager_random_werewolf'] = heuristic_villager_random_werewolf_stats
     
     # 5. Test any random combination of agent allocation
     print("\nTest scenario 5: Any random combination of agent allocation")
-    random_mix_stats = test_agent_type('random_mix', num_games, num_players, None, render, device, num_workers)
+    random_mix_stats = test_agent_type('random_mix', num_games, num_players, None, render, device, num_workers, role_config=role_config, use_complete_roles=use_complete_roles, log_dirs=log_dirs)
     results['random_mix'] = random_mix_stats
     
     # 创建汇总元数据
@@ -1003,7 +1176,11 @@ def compare_agent_types(num_games, num_players, device="cpu", num_workers=4, ren
             metadata['summary_logs'].append(result['summary_log'])
             
     # 保存测试元数据
-    metadata_path = f"logs/compare_agents_metadata_{num_games}_{time.strftime('%Y%m%d_%H%M%S')}.json"
+    if log_dirs and 'metadata' in log_dirs:
+        metadata_path = f"{log_dirs['metadata']}/compare_agents_metadata_{num_games}.json"
+    else:
+        metadata_path = f"logs/compare_agents_metadata_{num_games}_{time.strftime('%Y%m%d_%H%M%S')}.json"
+    
     with open(metadata_path, 'w') as f:
         json.dump(metadata, f, indent=2)
     print(f"\nComparison test metadata saved to {metadata_path}")
@@ -1011,7 +1188,7 @@ def compare_agent_types(num_games, num_players, device="cpu", num_workers=4, ren
     return results
 
 
-def test_rl_agent(model_path, num_games, num_players, device="cpu", num_workers=4, render=False):
+def test_rl_agent(model_path, num_games, num_players, device="cpu", num_workers=4, render=False, role_config=None, use_complete_roles=False, log_dirs=None):
     """Test RL agent
     
     Args:
@@ -1021,11 +1198,14 @@ def test_rl_agent(model_path, num_games, num_players, device="cpu", num_workers=
         device: Computing device
         num_workers: Number of parallel worker threads
         render: Whether to render
+        role_config: Path to role configuration file
+        use_complete_roles: Whether to use complete set of roles
+        log_dirs: 日志目录字典
         
     Returns:
         Test result
     """
-    return test_agent_type('rl', num_games, num_players, model_path, render, device, num_workers)
+    return test_agent_type('rl', num_games, num_players, model_path, render, device, num_workers, role_config=role_config, use_complete_roles=use_complete_roles, log_dirs=log_dirs)
 
 
 def print_results(results, title="Test result"):
@@ -1168,10 +1348,9 @@ def main():
         # Set random seed
         set_seed(args.seed)
         
-        # Ensure log directories exist
-        os.makedirs("logs", exist_ok=True)
-        os.makedirs("logs/game_histories", exist_ok=True)
-        os.makedirs("logs/summaries", exist_ok=True)
+        # 创建基于配置文件和时间戳的日志目录结构
+        log_dirs = setup_logging_directories(args.role_config, args.timestamp)
+        logger.info(f"Log directories setup at: {log_dirs['base']}")
         
         # 初始化结果信息
         start_time = time.time()  # 添加开始时间记录
@@ -1181,7 +1360,8 @@ def main():
             'num_games': args.num_games,
             'num_players': args.num_players,
             'device': args.device,
-            'summary_logs': []
+            'summary_logs': [],
+            'log_base_dir': log_dirs['base']
         }
         
         # Based on parameter, select test type
@@ -1192,7 +1372,10 @@ def main():
                 args.num_players, 
                 args.device, 
                 args.num_workers, 
-                args.render
+                args.render,
+                role_config=args.role_config,
+                use_complete_roles=args.use_complete_roles,
+                log_dirs=log_dirs
             )
             # 收集所有汇总日志路径
             if isinstance(results, dict):
@@ -1207,7 +1390,10 @@ def main():
                 args.device, 
                 args.num_workers, 
                 args.render,
-                args.test_scenario
+                args.test_scenario,
+                role_config=args.role_config,
+                use_complete_roles=args.use_complete_roles,
+                log_dirs=log_dirs
             )
             # 收集所有汇总日志路径
             if isinstance(results, dict):
@@ -1222,7 +1408,10 @@ def main():
                 args.num_players, 
                 args.device, 
                 args.num_workers, 
-                args.render
+                args.render,
+                role_config=args.role_config,
+                use_complete_roles=args.use_complete_roles,
+                log_dirs=log_dirs
             )
             if 'summary_log' in results:
                 test_results['summary_logs'].append(results['summary_log'])
@@ -1236,7 +1425,10 @@ def main():
                 args.render,
                 args.device,
                 args.num_workers,
-                args.seed
+                args.seed,
+                role_config=args.role_config,
+                use_complete_roles=args.use_complete_roles,
+                log_dirs=log_dirs
             )
             if 'summary_log' in results:
                 test_results['summary_logs'].append(results['summary_log'])
@@ -1249,7 +1441,11 @@ def main():
         test_results['total_duration'] = time.time() - start_time
         
         # 保存测试元数据
-        metadata_path = f"logs/test_metadata_{args.agent_type}_{args.num_games}_{time.strftime('%Y%m%d_%H%M%S')}.json"
+        if 'metadata' in log_dirs:
+            metadata_path = f"{log_dirs['metadata']}/test_metadata_{args.agent_type}_{args.num_games}.json"
+        else:
+            metadata_path = f"logs/test_metadata_{args.agent_type}_{args.num_games}_{time.strftime('%Y%m%d_%H%M%S')}.json"
+        
         with open(metadata_path, 'w') as f:
             json.dump(test_results, f, indent=2)
         print(f"\nTest metadata saved to {metadata_path}")

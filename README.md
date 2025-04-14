@@ -52,6 +52,13 @@ pip install -r requirements.txt
 
 ## Usage
 
+
+### Test Agents
+
+```bash
+python test_agents.py --agent_type compare --num_games 1000 --role_config .\config\6_players_roles.json
+```
+
 ### Training Agents
 
 Start training with the following command:

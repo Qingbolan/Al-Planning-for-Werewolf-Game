@@ -1,0 +1,17 @@
+{
+  "all_roles": [
+    "villager", "villager",
+    "werewolf", "werewolf",
+    "minion",
+    "seer",
+    "troublemaker",
+    "robber",
+    "insomniac"
+  ],
+  "required_player_roles": [
+    "werewolf", "werewolf",
+    "minion"
+  ],
+  "center_card_count": 3,
+  "enforce_required_roles": true
+} 

@@ -1,0 +1,11 @@
+{
+  "all_roles": [
+    "werewolf", "werewolf",
+    "villager", "villager", "villager", "villager"
+  ],
+  "required_player_roles": [
+    "werewolf", "werewolf"
+  ],
+  "center_card_count": 0,
+  "enforce_required_roles": true
+} 
