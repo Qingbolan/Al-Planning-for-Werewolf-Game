@@ -11,6 +11,7 @@ from tqdm import tqdm
 
 from train.multi_stage.stage1_trainer import Stage1Trainer
 from config.default_config import DEFAULT_GAME_CONFIG
+from agents.heuristic_agent import HeuristicAgent
 
 
 def parse_args():
@@ -122,7 +123,6 @@ def main():
     # 重写train方法，优化为GPU训练
     def create_agents_factory(model, device):
         """创建一个返回agent列表的工厂函数"""
-        from agents.base_agent import HeuristicAgent
         from models.rl_agent import RLAgent
         
         def create_agents():

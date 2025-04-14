@@ -2,6 +2,8 @@
 
 This project implements a reinforcement learning environment and agents for the Werewolf game. The project uses the Gymnasium framework for the game environment and implements reinforcement learning algorithms based on PyTorch to train the agents.
 
+
+
 ## Project Structure
 
 ```

@@ -1,0 +1,119 @@
+"""
+随机行动的狼人杀智能体
+"""
+from typing import Dict, List, Any, Tuple
+import random
+
+from werewolf_env.actions import (
+    Action, 
+    create_night_action, create_speech, create_vote, create_no_action,
+    SpeechType
+)
+from agents.base_agent import BaseAgent
+
+
+class RandomAgent(BaseAgent):
+    """Random action agent"""
+    
+    def _night_action(self, observation: Dict[str, Any]) -> Action:
+        """Random night action"""
+        role = self.current_role
+        
+        # Get available night actions for the role
+        if role == 'werewolf':
+            actions = ['check_other_werewolves', 'check_center_card']
+            action_name = random.choice(actions)
+            
+            if action_name == 'check_center_card':
+                card_index = random.randint(0, 2)  # Randomly select a center card
+                action = create_night_action(self.player_id, role, action_name, card_index=card_index)
+            else:
+                action = create_night_action(self.player_id, role, action_name)
+                
+        elif role == 'seer':
+            actions = ['check_player', 'check_center_cards']
+            action_name = random.choice(actions)
+            
+            if action_name == 'check_player':
+                target_id = self.get_random_player_except_self()
+                action = create_night_action(self.player_id, role, action_name, target_id=target_id)
+            else:
+                card_indices = random.sample(range(3), 2)  # Randomly select two center cards
+                action = create_night_action(self.player_id, role, action_name, card_indices=card_indices)
+                
+        elif role == 'robber':
+            target_id = self.get_random_player_except_self()
+            action = create_night_action(self.player_id, role, 'swap_role', target_id=target_id)
+            
+        elif role == 'troublemaker':
+            # Randomly select two different players to swap roles
+            players = [i for i in range(len(self.game_state.players)) if i != self.player_id]
+            if len(players) >= 2:
+                target_id1, target_id2 = random.sample(players, 2)
+                action = create_night_action(self.player_id, role, 'swap_roles', 
+                                          target_id1=target_id1, target_id2=target_id2)
+            
+        elif role == 'minion':
+            action = create_night_action(self.player_id, role, 'check_werewolves')
+            
+        elif role == 'insomniac':
+            action = create_night_action(self.player_id, role, 'check_final_role')
+            
+        # For roles without night actions or other cases
+        else:
+            action = create_no_action(self.player_id)
+        
+        self.log_action(action)
+        return action
+    
+    def _day_action(self, observation: Dict[str, Any]) -> Action:
+        """Random day speech"""
+        # Randomly select speech type
+        speech_types = [t.name for t in SpeechType]
+        speech_type = random.choice(speech_types)
+        
+        if speech_type == SpeechType.CLAIM_ROLE.name:
+            # Claim a role (could be true or false)
+            possible_roles = ['villager', 'seer', 'robber', 'troublemaker', 'insomniac']
+            role = random.choice(possible_roles)
+            action = create_speech(self.player_id, speech_type, role=role)
+            
+        elif speech_type == SpeechType.CLAIM_ACTION_RESULT.name:
+            # Claim action result
+            claimed_role = self.current_role  # Usually claim true role
+            action = "check" if claimed_role == 'seer' else "swap" if claimed_role in ['robber', 'troublemaker'] else "inspect"
+            target = f"player{random.randint(0, len(self.game_state.players)-1)}"
+            result = random.choice(['villager', 'werewolf', 'seer'])
+            
+            action = create_speech(self.player_id, speech_type, 
+                                role=claimed_role, action=action, target=target, result=result)
+                                
+        elif speech_type == SpeechType.ACCUSE.name:
+            # Accuse someone of being a werewolf
+            target_id = self.get_random_player_except_self()
+            action = create_speech(self.player_id, speech_type, 
+                                target_id=target_id, accused_role='werewolf')
+                                
+        elif speech_type == SpeechType.DEFEND.name:
+            # Defend against being a werewolf
+            action = create_speech(self.player_id, speech_type, 
+                                not_role='werewolf', reason="I am a good person")
+                                
+        elif speech_type == SpeechType.VOTE_INTENTION.name:
+            # Declare voting intention
+            target_id = self.get_random_player_except_self()
+            action = create_speech(self.player_id, speech_type, target_id=target_id)
+        
+        # Default claim to be a villager
+        else:
+            action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role='villager')
+        
+        self.log_action(action)
+        return action
+    
+    def _vote_action(self, observation: Dict[str, Any]) -> Action:
+        """Random voting"""
+        target_id = self.get_random_player_except_self()
+        action = create_vote(self.player_id, target_id)
+        self.log_action(action)
+        return action 

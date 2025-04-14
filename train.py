@@ -12,7 +12,7 @@ from collections import defaultdict
 import json
 
 from werewolf_env import WerewolfEnv
-from agents.base_agent import BaseAgent, RandomAgent, HeuristicAgent, create_agent
+from agents import BaseAgent, RandomAgent, HeuristicAgent, create_agent
 from config import DEFAULT_GAME_CONFIG, ROLE_TEAMS
 from utils.visualizer import BeliefVisualizer
 
