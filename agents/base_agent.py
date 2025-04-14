@@ -1,7 +1,7 @@
 """
 Base class for Werewolf game agents
 """
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Tuple
 import numpy as np
 import random
 from abc import ABC, abstractmethod
@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from werewolf_env.state import GameState, PlayerObservation
 from werewolf_env.actions import (
-    ActionType, Action, NightAction, DaySpeech, VoteAction, NoAction,
+    Action, 
     create_night_action, create_speech, create_vote, create_no_action,
     SpeechType
 )
@@ -355,8 +355,19 @@ class RandomAgent(BaseAgent):
 
 
 class HeuristicAgent(BaseAgent):
-    """Rule-based agent"""
+    """Rule-based heuristic agent"""
     
+    def __init__(self, player_id: int):
+        """
+        Initialize the heuristic agent
+        
+        Args:
+            player_id: Player ID
+        """
+        super().__init__(player_id)
+        self.claimed_role = None  # 记录已声明的角色
+        self.claimed_actions = []  # 记录已声明的行动
+
     def _night_action(self, observation: Dict[str, Any]) -> Action:
         """Rule-based night action"""
         role = self.current_role
@@ -455,72 +466,116 @@ class HeuristicAgent(BaseAgent):
     def _day_action(self, observation: Dict[str, Any]) -> Action:
         """Rule-based day speech"""
         role = self.current_role
+        speech_round = observation.get('speech_round', 0)
         
-        # Different roles have different speech strategies
+        # 如果已经有声明过的角色，保持一致性
+        if self.claimed_role is not None:
+            if speech_round > 0 and random.random() < 0.7:  # 在后续轮次中有70%概率重申角色
+                # 重申已声明的角色
+                return create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
+        
+        # 不同角色有不同的发言策略
         if role == 'werewolf':
-            # Werewolves might pretend to be villagers or special roles
-            if random.random() < 0.6:  # 60% chance to pretend to be villager
-                action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role='villager')
+            # 狼人可能假装成村民或特殊角色
+            if self.claimed_role is None:  # 第一次声明角色
+                if random.random() < 0.6:  # 60%概率假装成村民
+                    self.claimed_role = 'villager'
+                    action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role='villager')
+                else:
+                    # 40%概率假装成特殊角色（通常不会声称是预言家，因为容易被反驳）
+                    special_roles = ['robber', 'troublemaker', 'insomniac']
+                    self.claimed_role = random.choice(special_roles)
+                    
+                    if self.claimed_role == 'robber':
+                        # 编造一个偷窃故事
+                        target_id = self.get_random_player_except_self()
+                        fake_stolen_role = random.choice(['villager', 'troublemaker', 'insomniac'])
+                        
+                        action = create_speech(self.player_id, SpeechType.CLAIM_ACTION_RESULT.name,
+                                            role='robber', action='steal', target=f"player {target_id}",
+                                            result=fake_stolen_role)
+                        self.claimed_actions.append({"target": target_id, "result": fake_stolen_role})
+                    else:
+                        # 简单声明角色
+                        action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
             else:
-                # 40% chance to pretend to be special role (usually won't claim to be seer as it's easily refuted)
-                special_roles = ['robber', 'troublemaker', 'insomniac']
-                fake_role = random.choice(special_roles)
-                
-                if fake_role == 'robber':
-                    # Make up a stealing story
+                # 已经声明过角色，采取一致的后续行动
+                if self.claimed_role == 'robber' and random.random() < 0.5 and not self.claimed_actions:
+                    # 编造一个偷窃故事
                     target_id = self.get_random_player_except_self()
                     fake_stolen_role = random.choice(['villager', 'troublemaker', 'insomniac'])
                     
                     action = create_speech(self.player_id, SpeechType.CLAIM_ACTION_RESULT.name,
-                                        role='robber', action='steal', target=f"player{target_id}",
+                                        role='robber', action='steal', target=f"player {target_id}",
                                         result=fake_stolen_role)
+                    self.claimed_actions.append({"target": target_id, "result": fake_stolen_role})
+                elif speech_round > 1 and random.random() < 0.3:
+                    # 在后期轮次有30%概率尝试指控其他玩家
+                    suspected_player = self.get_random_player_except_self()
+                    action = create_speech(self.player_id, SpeechType.ACCUSE.name,
+                                        target_id=suspected_player, accused_role='werewolf')
                 else:
-                    # Simply claim role
-                    action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=fake_role)
+                    # 重申自己的角色
+                    action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
         
         elif role == 'seer':
-            # Seer usually claims to be seer and shares check results
-            # Check for night action results
+            # 预言家通常声称是预言家并分享检查结果
+            if self.claimed_role is None:
+                self.claimed_role = 'seer'
+            
+            # 检查夜间行动结果
             action_results = [action for action in self.action_history 
                              if action.get('player_id') == self.player_id 
                              and action.get('action') == 'check_player']
             
-            if action_results:
-                # Has check results, share them
-                action_result = action_results[-1]  # Latest check result
+            if action_results and random.random() < 0.7:
+                # 有检查结果，分享它们
+                action_result = action_results[-1]  # 最新的检查结果
                 target_id = action_result.get('target')
                 result = action_result.get('result')
                 
                 if target_id is not None and result:
                     action = create_speech(self.player_id, SpeechType.CLAIM_ACTION_RESULT.name,
-                                        role='seer', action='check', target=f"player{target_id}",
+                                        role='seer', action='check', target=f"player {target_id}",
                                         result=result)
-            
-            # If no check results or checked center cards, simply claim to be seer
+                    self.claimed_actions.append({"target": target_id, "result": result})
+                else:
+                    action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
             else:
-                action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role='seer')
+                # 如果没有检查结果或检查了中央牌，只需声明自己是预言家
+                action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
         
         elif role in ['robber', 'troublemaker', 'insomniac']:
-            # Special roles usually claim their role and action results
-            action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=role)
+            # 特殊角色通常声明其角色和行动结果
+            if self.claimed_role is None:
+                self.claimed_role = role
+            
+            action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
         
         elif role == 'minion':
-            # Minion needs to protect werewolves, usually pretends to be villager
-            action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role='villager')
+            # 爪牙需要保护狼人，通常假装是村民
+            if self.claimed_role is None:
+                self.claimed_role = 'villager'
+            
+            action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
         
-        else:  # Villager
-            # Villagers usually claim to be villagers or accuse suspicious players
-            if random.random() < 0.7:  # 70% chance to claim to be villager
-                action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role='villager')
-            else:
-                # 30% chance to accuse suspicious players
+        else:  # 村民
+            # 村民通常声称是村民或指控可疑玩家
+            if self.claimed_role is None:
+                self.claimed_role = 'villager'
+            
+            if speech_round > 0 and random.random() < 0.3:  # 在后续轮次中有30%概率指控可疑玩家
+                # 指控可疑玩家
                 suspected_player, prob = self.get_most_suspected_werewolf()
                 if suspected_player >= 0 and prob > 0.3:
                     action = create_speech(self.player_id, SpeechType.ACCUSE.name,
                                         target_id=suspected_player, accused_role='werewolf')
                 else:
-                    # If no sufficiently suspicious players, claim to be villager
-                    action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role='villager')
+                    # 如果没有足够可疑的玩家，声称是村民
+                    action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
+            else:
+                # 声称是村民
+                action = create_speech(self.player_id, SpeechType.CLAIM_ROLE.name, role=self.claimed_role)
         
         self.log_action(action)
         return action
