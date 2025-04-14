@@ -35,19 +35,10 @@ class HeuristicAgent(BaseAgent):
             # If other werewolves are known, choose to check other werewolves
             # If the only werewolf, check center card pile
             other_werewolves_exist = False
-            
-            if hasattr(self.game_state, 'players'):
-                # 处理GameState对象
-                for player in self.game_state.players:
-                    if player['id'] != self.player_id and player['original_role'] == 'werewolf':
-                        other_werewolves_exist = True
-                        break
-            else:
-                # 处理字典格式
-                for player in self.game_state.get('players', []):
-                    if player.get('player_id') != self.player_id and player.get('original_role') == 'werewolf':
-                        other_werewolves_exist = True
-                        break
+            for player in self.game_state.players:
+                if player['id'] != self.player_id and player['original_role'] == 'werewolf':
+                    other_werewolves_exist = True
+                    break
             
             if other_werewolves_exist:
                 action = create_night_action(self.player_id, role, 'check_other_werewolves')

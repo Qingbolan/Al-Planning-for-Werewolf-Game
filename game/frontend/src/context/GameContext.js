@@ -15,6 +15,7 @@ export const GameProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState([]);
+  const [gameResult, setGameResult] = useState(null);
   
   // 默认玩家名称
   const defaultPlayerName = '玩家';
@@ -33,9 +34,32 @@ export const GameProvider = ({ children }) => {
         name: defaultPlayerName,
       });
       
-      // 在这里可以添加从服务器获取游戏状态的请求
+      // 尝试从服务器获取游戏状态
+      fetchGameState(savedGameId, savedPlayerId);
     }
   }, []);
+
+  // 获取游戏状态
+  const fetchGameState = async (gameId, playerId) => {
+    try {
+      setLoading(true);
+      const data = await gameApi.getGameState(gameId, playerId);
+      setGameState(data);
+      
+      // 如果游戏已结束，获取游戏结果
+      if (data.game_over) {
+        fetchGameResult(gameId);
+      }
+      
+      setLoading(false);
+      return data;
+    } catch (error) {
+      console.error('获取游戏状态失败:', error);
+      setError('获取游戏状态失败: ' + (error.response?.data?.detail || error.message || '未知错误'));
+      setLoading(false);
+      throw error;
+    }
+  };
 
   // 创建游戏
   const createGame = async (config) => {
@@ -47,8 +71,52 @@ export const GameProvider = ({ children }) => {
       localStorage.removeItem('gameId');
       localStorage.removeItem('playerId');
       
+      console.log('发送游戏创建请求:', config);
       const data = await gameApi.createGame(config);
-      console.log('Game created successfully:', data);
+      console.log('游戏创建成功:', data);
+      
+      if (data && data.success) {
+        // 设置游戏状态
+        setGameState(data.state);
+        
+        // 从配置中找出人类玩家
+        let humanPlayerId = null;
+        let humanPlayerName = null;
+        
+        if (config.players) {
+          for (const [id, playerInfo] of Object.entries(config.players)) {
+            if (playerInfo.is_human) {
+              humanPlayerId = parseInt(id, 10);
+              humanPlayerName = playerInfo.name;
+              break;
+            }
+          }
+        }
+        
+        // 如果找到人类玩家，设置玩家状态
+        if (humanPlayerId !== null) {
+          setPlayer({
+            playerId: humanPlayerId,
+            gameId: data.game_id,
+            name: humanPlayerName || defaultPlayerName
+          });
+          
+          // 保存会话数据
+          localStorage.setItem('gameId', data.game_id);
+          localStorage.setItem('playerId', humanPlayerId);
+        } else {
+          // 如果没有人类玩家，设置为观察者模式
+          setPlayer({
+            playerId: 'observer',
+            gameId: data.game_id,
+            name: 'Observer'
+          });
+          
+          // 保存会话数据
+          localStorage.setItem('gameId', data.game_id);
+          localStorage.setItem('playerId', 'observer');
+        }
+      }
       
       return data;
     } catch (error) {
@@ -61,25 +129,26 @@ export const GameProvider = ({ children }) => {
   };
 
   // 创建测试游戏
-  const createTestGame = async (testGameType = "heuristic") => {
+  const createTestGame = async (testGameType = "heuristic", numPlayers = 6, seed = null) => {
     try {
       setLoading(true);
       setError(null);
     
       // 创建测试游戏
-      const result = await gameApi.createTestGame(testGameType);
+      const result = await gameApi.createTestGame(testGameType, numPlayers, seed);
       
       if (result.success) {
         console.log('测试游戏创建成功:', result);
         
-        // 设置玩家信息
-        setPlayer({
-          playerId: result.playerId,
-          gameId: result.gameId,
-          name: defaultPlayerName
-        });
+        // 设置游戏状态
+        setGameState(result.state);
         
-        // 在这里你可以从服务器获取初始游戏状态
+        // 设置玩家信息 (观察者模式)
+        setPlayer({
+          playerId: 'observer',
+          gameId: result.gameId,
+          name: 'Observer'
+        });
       } else {
         setError(result.error || '创建测试游戏时发生未知错误');
       }
@@ -101,7 +170,7 @@ export const GameProvider = ({ children }) => {
       setError(null);
       
       const result = await gameApi.joinGame(gameId, playerName);
-      console.log('Game joined:', result);
+      console.log('加入游戏成功:', result);
       
       if (result.success) {
         // 设置玩家信息
@@ -111,7 +180,8 @@ export const GameProvider = ({ children }) => {
           name: playerName || defaultPlayerName
         });
         
-        // 在这里你可以从服务器获取初始游戏状态
+        // 设置游戏状态
+        setGameState(result.state);
       }
       
       setLoading(false);
@@ -128,19 +198,109 @@ export const GameProvider = ({ children }) => {
   const performAction = async (action) => {
     try {
       setError(null);
+      setLoading(true);
+      
+      if (!player || !player.gameId || !player.playerId) {
+        throw new Error('玩家未加入游戏');
+      }
       
       // 通过REST API发送行动
       const result = await gameApi.performAction(player.gameId, player.playerId, action);
       
       // 更新本地游戏状态
-      if (result.gameState) {
-        setGameState(result.gameState);
+      if (result.state_update) {
+        setGameState(prevState => ({
+          ...prevState,
+          ...result.state_update
+        }));
+        
+        // 如果游戏已结束，获取游戏结果
+        if (result.state_update.game_over) {
+          fetchGameResult(player.gameId);
+        }
       }
       
+      setLoading(false);
       return result;
     } catch (error) {
       console.error('执行行动失败:', error);
       setError('执行行动失败: ' + (error.message || '未知错误'));
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  // 获取AI决策
+  const getAIDecision = async (playerId) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      if (!player || !player.gameId) {
+        throw new Error('游戏未创建');
+      }
+      
+      const result = await gameApi.getAIDecision(player.gameId, playerId, gameState);
+      
+      setLoading(false);
+      return result;
+    } catch (error) {
+      console.error('获取AI决策失败:', error);
+      setError('获取AI决策失败: ' + (error.message || '未知错误'));
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  // 执行游戏步骤 (自动化测试)
+  const executeGameStep = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      if (!player || !player.gameId) {
+        throw new Error('游戏未创建');
+      }
+      
+      const result = await gameApi.executeGameStep(player.gameId);
+      
+      // 更新游戏状态
+      if (result.state_update) {
+        setGameState(prevState => ({
+          ...prevState,
+          ...result.state_update
+        }));
+        
+        // 如果游戏已结束，获取游戏结果
+        if (result.state_update.game_over) {
+          fetchGameResult(player.gameId);
+        }
+      }
+      
+      setLoading(false);
+      return result;
+    } catch (error) {
+      console.error('执行游戏步骤失败:', error);
+      setError('执行游戏步骤失败: ' + (error.message || '未知错误'));
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  // 获取游戏结果
+  const fetchGameResult = async (gameId) => {
+    try {
+      setLoading(true);
+      
+      const result = await gameApi.getGameResult(gameId);
+      setGameResult(result);
+      
+      setLoading(false);
+      return result;
+    } catch (error) {
+      console.error('获取游戏结果失败:', error);
+      setError('获取游戏结果失败: ' + (error.message || '未知错误'));
+      setLoading(false);
       throw error;
     }
   };
@@ -169,6 +329,7 @@ export const GameProvider = ({ children }) => {
     setGameState(null);
     setPlayer(null);
     setMessages([]);
+    setGameResult(null);
   };
 
   // 提供上下文值
@@ -179,10 +340,15 @@ export const GameProvider = ({ children }) => {
     error,
     loading,
     messages,
+    gameResult,
     createGame,
     createTestGame,
     joinGame,
     performAction,
+    getAIDecision,
+    executeGameStep,
+    fetchGameState,
+    fetchGameResult,
     sendChatMessage,
     disconnect,
   };
