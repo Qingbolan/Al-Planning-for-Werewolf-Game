@@ -44,13 +44,17 @@ const getRoleImage = (role) => {
 
 const Game = () => {
   const navigate = useNavigate();
-  const { gameState, player, messages, performAction, sendChatMessage, disconnect } = useGame();
+  const { gameState, player, messages, performAction, sendChatMessage, disconnect, executeGameStep } = useGame();
 
   // 本地状态管理
   const [chatMessage, setChatMessage] = useState('');
   const [actionDialogOpen, setActionDialogOpen] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
   const [actionParams, setActionParams] = useState({});
+
+  // 自动执行测试游戏步骤（当玩家是观察者时）
+  const [autoExecuting, setAutoExecuting] = useState(false);
+  const [autoExecuteInterval, setAutoExecuteInterval] = useState(null);
 
   // 检查玩家是否已加入游戏
   useEffect(() => {
@@ -64,6 +68,46 @@ const Game = () => {
     console.log('Current game state:', gameState);
     console.log('Player information:', player);
   }, [gameState, player]);
+
+  // 自动执行测试游戏步骤（当玩家是观察者时）
+  useEffect(() => {
+    // 仅当玩家是观察者且游戏状态存在且游戏未结束时执行
+    if (player?.playerId === 'observer' && gameState && !gameState.game_over) {
+      console.log('自动执行游戏步骤中...');
+      
+      // 清除之前的间隔
+      if (autoExecuteInterval) {
+        clearInterval(autoExecuteInterval);
+      }
+      
+      // 设置新的自动执行间隔
+      const interval = setInterval(async () => {
+        try {
+          if (!autoExecuting) {
+            setAutoExecuting(true);
+            await executeGameStep();
+            setAutoExecuting(false);
+          }
+        } catch (error) {
+          console.error('自动执行步骤失败:', error);
+          setAutoExecuting(false);
+        }
+      }, 2000); // 每2秒执行一次
+      
+      setAutoExecuteInterval(interval);
+      
+      // 清理函数
+      return () => {
+        if (interval) {
+          clearInterval(interval);
+        }
+      };
+    } else if (gameState?.game_over && autoExecuteInterval) {
+      // 如果游戏结束，停止自动执行
+      clearInterval(autoExecuteInterval);
+      setAutoExecuteInterval(null);
+    }
+  }, [player, gameState, executeGameStep, autoExecuting, autoExecuteInterval]);
 
   // 从 gameState 中查找当前登录玩家在游戏内的详细信息
   const currentUser = useMemo(() => {

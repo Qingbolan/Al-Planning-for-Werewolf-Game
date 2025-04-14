@@ -34,32 +34,10 @@ export const GameProvider = ({ children }) => {
         name: defaultPlayerName,
       });
       
-      // 尝试从服务器获取游戏状态
-      fetchGameState(savedGameId, savedPlayerId);
+      // 游戏会话恢复后，需要在用户执行下一步动作时更新状态
+      // 不再主动获取游戏状态
     }
   }, []);
-
-  // 获取游戏状态
-  const fetchGameState = async (gameId, playerId) => {
-    try {
-      setLoading(true);
-      const data = await gameApi.getGameState(gameId, playerId);
-      setGameState(data);
-      
-      // 如果游戏已结束，获取游戏结果
-      if (data.game_over) {
-        fetchGameResult(gameId);
-      }
-      
-      setLoading(false);
-      return data;
-    } catch (error) {
-      console.error('获取游戏状态失败:', error);
-      setError('获取游戏状态失败: ' + (error.response?.data?.detail || error.message || '未知错误'));
-      setLoading(false);
-      throw error;
-    }
-  };
 
   // 创建游戏
   const createGame = async (config) => {
@@ -347,7 +325,6 @@ export const GameProvider = ({ children }) => {
     performAction,
     getAIDecision,
     executeGameStep,
-    fetchGameState,
     fetchGameResult,
     sendChatMessage,
     disconnect,

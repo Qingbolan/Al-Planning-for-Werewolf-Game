@@ -121,30 +121,6 @@ const gameApi = {
     }
   },
 
-  // 获取游戏状态
-  getGameState: async (gameId, playerId) => {
-    try {
-      // 如果playerId是观察者模式或undefined，不传递player_id参数
-      let url;
-      if (playerId === 'observer' || playerId === undefined) {
-        url = `/api/game/state/${gameId}`;
-      } else {
-        // 确保playerId是整数
-        const playerIdInt = parseInt(playerId, 10);
-        if (isNaN(playerIdInt)) {
-          throw new Error('玩家ID必须是整数');
-        }
-        url = `/api/game/state/${gameId}?player_id=${playerIdInt}`;
-      }
-      
-      const response = await apiClient.get(url);
-      return response.data;
-    } catch (error) {
-      console.error('获取游戏状态失败:', error);
-      throw error;
-    }
-  },
-
   // 执行游戏操作 (夜晚行动、白天发言、投票)
   performAction: async (gameId, playerId, action) => {
     try {
