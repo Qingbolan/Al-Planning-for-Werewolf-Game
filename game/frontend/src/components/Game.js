@@ -306,6 +306,16 @@ const Game = () => {
             <Typography variant="body1" gutterBottom>
               Game ID: {gameState.game_id}
             </Typography>
+            
+            {player?.playerId === 'observer' && (
+              <Paper sx={{ p: 2, mb: 2, bgcolor: 'info.light', color: 'info.contrastText' }}>
+                <Typography variant="h6">🔍 观察者模式 (AI自动对战)</Typography>
+                <Typography variant="body2">
+                  您正在观察AI自动对战。系统将按照游戏规则顺序自动执行各AI角色的行动。
+                  动作执行间隔为2秒，请耐心等待游戏进程。
+                </Typography>
+              </Paper>
+            )}
           </Grid>
 
           {/* 游戏内容与玩家信息 */}

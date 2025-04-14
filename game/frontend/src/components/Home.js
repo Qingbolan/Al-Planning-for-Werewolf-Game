@@ -10,7 +10,7 @@ import { gameApi } from '../services/api';
 
 const Home = () => {
   const navigate = useNavigate();
-  const { createGame, joinGame, loading, error } = useGame();
+  const { createGame, createTestGame, loading, error } = useGame();
   
   // Default player name
   const playerName = 'Player';
@@ -63,35 +63,12 @@ const Home = () => {
   // Create test game
   const handleCreateTestGame = async () => {
     try {
-      // 创建测试游戏 - 使用API文档中指定的格式
-      const gameConfig = {
-        num_players: 6,  // 明确设置玩家数量
-        roles: ["werewolf", "werewolf", "minion", "villager", "seer", "troublemaker"],
-        players: {
-          "0": {"is_human": false, "name": "AI-0", "agent_type": testGameType},
-          "1": {"is_human": false, "name": "AI-1", "agent_type": testGameType},
-          "2": {"is_human": false, "name": "AI-2", "agent_type": testGameType},
-          "3": {"is_human": false, "name": "AI-3", "agent_type": testGameType},
-          "4": {"is_human": false, "name": "AI-4", "agent_type": testGameType},
-          "5": {"is_human": false, "name": "AI-5", "agent_type": testGameType}
-        },
-        center_card_count: 3,
-        max_speech_rounds: 3,
-        seed: Math.floor(Math.random() * 1000) // 添加随机种子
-      };
-      
-      console.log("测试游戏配置:", gameConfig);
-      
-      // 直接使用API调用创建游戏
-      const result = await gameApi.createTestGame(testGameType);
+      // 使用GameContext的createTestGame方法
+      const result = await createTestGame(testGameType);
       console.log("测试游戏创建成功:", result);
       
       if (result && result.success) {
-        // 保存游戏和玩家ID
-        localStorage.setItem('gameId', result.gameId);
-        localStorage.setItem('playerId', 'observer'); // 作为观察者
-        
-        // 导航到游戏页面
+        // 导航到游戏页面，观察AI自动对战
         navigate('/game');
       } else {
         console.error('创建测试游戏失败:', result?.error || '未知错误');
