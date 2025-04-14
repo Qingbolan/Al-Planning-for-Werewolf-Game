@@ -9,12 +9,10 @@ import random
 from typing import Dict, List, Any, Optional, Tuple
 import os
 
-from agents.base_agent import BaseAgent
+from agents import BaseAgent
 from werewolf_env.state import GameState
 from werewolf_env.actions import (
-    ActionType, Action, NightAction, DaySpeech, VoteAction, NoAction,
-    create_night_action, create_speech, create_vote, create_no_action,
-    SpeechType
+    ActionType
 )
 
 class WerewolfNetwork(nn.Module):

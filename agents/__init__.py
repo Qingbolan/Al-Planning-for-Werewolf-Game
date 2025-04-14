@@ -1,9 +1,10 @@
 """
-Werewolf Game Agents Package
+Werewolf game agents module
 """
-from agents.base_agent import (
-    BaseAgent, RandomAgent, HeuristicAgent, create_agent
-)
+from agents.base_agent import BaseAgent
+from agents.random_agent import RandomAgent
+from agents.heuristic_agent import HeuristicAgent
+from agents.agent_factory import create_agent
 
 # Try to import RL agent, skip if not available
 try:

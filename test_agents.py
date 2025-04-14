@@ -18,7 +18,7 @@ from typing import Dict, List, Any, Tuple, Optional
 
 from werewolf_env import WerewolfEnv
 from werewolf_env.roles import Role
-from agents.base_agent import RandomAgent, HeuristicAgent, create_agent
+from agents import RandomAgent, HeuristicAgent, create_agent
 from models.rl_agent import RLAgent, WerewolfNetwork
 from config.default_config import DEFAULT_GAME_CONFIG, ROLE_TEAMS
 

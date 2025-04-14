@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from train.base.base_trainer import BaseTrainer
 from werewolf_env import WerewolfEnv
-from agents.base_agent import RandomAgent, HeuristicAgent
+from agents import RandomAgent, HeuristicAgent
 from models.rl_agent import RLAgent, WerewolfNetwork
 from config.default_config import DEFAULT_GAME_CONFIG
 

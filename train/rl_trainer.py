@@ -16,7 +16,7 @@ import wandb
 from tqdm import tqdm
 
 from werewolf_env import WerewolfEnv
-from agents.base_agent import BaseAgent, RandomAgent, HeuristicAgent
+from agents import BaseAgent, RandomAgent, HeuristicAgent
 from models.rl_agent import RLAgent, WerewolfNetwork
 from utils.belief_updater import BeliefState
 from config.default_config import DEFAULT_GAME_CONFIG, ROLE_TEAMS
