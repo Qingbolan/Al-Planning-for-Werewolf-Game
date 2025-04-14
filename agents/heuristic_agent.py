@@ -35,10 +35,19 @@ class HeuristicAgent(BaseAgent):
             # If other werewolves are known, choose to check other werewolves
             # If the only werewolf, check center card pile
             other_werewolves_exist = False
-            for player in self.game_state.players:
-                if player['id'] != self.player_id and player['original_role'] == 'werewolf':
-                    other_werewolves_exist = True
-                    break
+            
+            if hasattr(self.game_state, 'players'):
+                # 处理GameState对象
+                for player in self.game_state.players:
+                    if player['id'] != self.player_id and player['original_role'] == 'werewolf':
+                        other_werewolves_exist = True
+                        break
+            else:
+                # 处理字典格式
+                for player in self.game_state.get('players', []):
+                    if player.get('player_id') != self.player_id and player.get('original_role') == 'werewolf':
+                        other_werewolves_exist = True
+                        break
             
             if other_werewolves_exist:
                 action = create_night_action(self.player_id, role, 'check_other_werewolves')
@@ -439,3 +448,123 @@ class HeuristicAgent(BaseAgent):
             
             # If still no clear target, make a random choice
             return random.choice(available_players) 
+
+    def decide_action(self, game_state) -> Tuple[Dict[str, Any], str]:
+        """
+        决定要执行的动作并提供理由
+        
+        Args:
+            game_state: 游戏状态
+            
+        Returns:
+            Tuple[Dict, str]: (动作，理由)
+        """
+        # 确保初始化
+        if self.original_role is None:
+            self.initialize(game_state)
+        
+        # 获取动作
+        action = self.get_action(game_state)
+        
+        # 为不同类型的动作生成理由
+        reasoning = ""
+        
+        # 检查action类型
+        if hasattr(action, 'action_type'):
+            action_type = action.action_type
+            
+            if action_type == "NIGHT_ACTION":
+                role = self.current_role
+                action_name = action.action_name
+                
+                if role == 'werewolf':
+                    if action_name == 'check_other_werewolves':
+                        reasoning = "作为狼人，我想查看其他狼人以确定我的队友"
+                    else:
+                        reasoning = "作为狼人，我想查看中央牌以获取更多信息"
+                elif role == 'seer':
+                    if action_name == 'check_player':
+                        reasoning = "作为预言家，我想检查可疑的玩家身份"
+                    else:
+                        reasoning = "作为预言家，我想查看中央牌中的角色"
+                elif role == 'robber':
+                    reasoning = "作为强盗，我想偷取其他玩家的角色"
+                elif role == 'troublemaker':
+                    reasoning = "作为捣蛋鬼，我想交换两名玩家的角色卡"
+                elif role == 'insomniac':
+                    reasoning = "作为失眠者，我想查看我最终的角色"
+                else:
+                    reasoning = "执行夜间动作"
+                    
+            elif action_type == "DAY_SPEECH":
+                speech_type = action.content.get('type', '')
+                
+                if speech_type == 'CLAIM_ROLE':
+                    role = action.content.get('role', '')
+                    reasoning = f"声称自己是{role}角色"
+                elif speech_type == 'CLAIM_ACTION_RESULT':
+                    reasoning = "分享我在夜间执行动作的结果"
+                elif speech_type == 'ACCUSE':
+                    target_id = action.content.get('target_id', -1)
+                    reasoning = f"指控玩家{target_id}是狼人"
+                else:
+                    reasoning = "发表演讲"
+                    
+            elif action_type == "VOTE":
+                target_id = action.target_id
+                reasoning = f"投票给玩家{target_id}，我认为他/她最有可能是狼人"
+                
+            else:
+                reasoning = "执行动作"
+        else:
+            # 动作可能是字典格式
+            action_type = action.get('action_type', '')
+            
+            if action_type == 'NIGHT_ACTION':
+                role = self.current_role
+                action_name = action.get('action_name', '')
+                
+                if role == 'werewolf':
+                    if action_name == 'check_other_werewolves':
+                        reasoning = "作为狼人，我想查看其他狼人以确定我的队友"
+                    else:
+                        reasoning = "作为狼人，我想查看中央牌以获取更多信息"
+                # ... 其他角色的理由
+                else:
+                    reasoning = "执行夜间动作"
+            elif action_type == 'DAY_SPEECH':
+                speech_type = action.get('speech_type', '')
+                
+                if speech_type == 'CLAIM_ROLE':
+                    reasoning = "声称自己的角色"
+                else:
+                    reasoning = "发表演讲"
+            elif action_type == 'VOTE':
+                target_id = action.get('target_id', -1)
+                reasoning = f"投票给玩家{target_id}"
+            else:
+                reasoning = "执行动作"
+        
+        # 转换Action对象为字典（如果需要）
+        if not isinstance(action, dict):
+            if hasattr(action, 'to_dict'):
+                action_dict = action.to_dict()
+            else:
+                # 手动转换
+                action_dict = {
+                    'action_type': getattr(action, 'action_type', 'UNKNOWN'),
+                }
+                
+                # 根据不同类型添加特定属性
+                if hasattr(action, 'action_name'):
+                    action_dict['action_name'] = action.action_name
+                    action_dict['action_params'] = getattr(action, 'action_params', {})
+                elif hasattr(action, 'content'):
+                    action_dict['speech_type'] = action.content.get('type', 'GENERAL')
+                    action_dict['content'] = action.content
+                elif hasattr(action, 'target_id'):
+                    action_dict['target_id'] = action.target_id
+        else:
+            action_dict = action
+        
+        return action_dict, reasoning 

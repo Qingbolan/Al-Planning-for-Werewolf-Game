@@ -87,7 +87,7 @@ async def create_game(request: CreateGameRequest):
 
 @router.get("/game/create-test", response_model=CreateGameResponse)
 async def create_test_game(
-    test_game_type: str = Query("heuristic", description="AI type to use (options: random, heuristic, heuristic_villager_random_werewolf, random_villager_heuristic_werewolf)"),
+    test_game_type: str = Query("heuristic", description="AI type to use (options: random, heuristic, heuristic_villager_random_werewolf, random_villager_heuristic_werewolf, random_mix)"),
     num_players: int = Query(6, description="Number of players in the game", gt=0),
     seed: Optional[int] = Query(None, description="Random seed for reproducible testing")
 ):
@@ -111,6 +111,9 @@ async def create_test_game(
                 status_code=400, 
                 detail=result.get("message", "Failed to create test game")
             )
+            
+        # 添加test_game_type到响应中
+        result["test_game_type"] = test_game_type
             
         return result
     except Exception as e:

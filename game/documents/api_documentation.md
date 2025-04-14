@@ -8,7 +8,7 @@ This document provides a comprehensive guide to the Werewolf Game API, designed 
 ## Base URL
 
 ```
-http://localhost:8000
+http://localhost:18000
 ```
 
 ## Game Flow and API Design

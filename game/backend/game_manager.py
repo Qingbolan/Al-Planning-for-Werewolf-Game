@@ -450,122 +450,208 @@ class GameManager:
         If game_state is provided, use that instead of fetching from cache
         (useful for frontend-managed state)
         """
-        state_to_use = game_state
-        
-        if not state_to_use:
-            with cache_lock:
-                game_data = GAME_CACHE.get(game_id)
+        try:
+            state_to_use = game_state
             
-            if not game_data:
-                return {"success": False, "message": "Game not found"}
+            if not state_to_use:
+                with cache_lock:
+                    game_data = GAME_CACHE.get(game_id)
+                
+                if not game_data:
+                    return {"success": False, "message": "Game not found"}
+                
+                state_to_use = game_data["state"]
             
-            state_to_use = game_data["state"]
-        
-        # Find the player in the state
-        player = None
-        for p in state_to_use.get("players", []):
-            if p.get("player_id") == player_id:
-                player = p
-                break
-        
-        if not player:
-            return {"success": False, "message": "Player not found"}
-        
-        if player.get("is_human", False):
-            return {"success": False, "message": "Cannot get AI decision for human player"}
-        
-        # Create an AI agent and get its decision
-        agent_type = player.get("agent_type", "heuristic")
-        agent = create_agent(agent_type, player_id, state_to_use)
-        
-        # Get the decision
-        action, reasoning = agent.decide_action(state_to_use)
-        
-        return {
-            "success": True,
-            "player_id": player_id,
-            "action": action,
-            "reasoning": reasoning
-        }
+            logger.info(f"Getting AI decision for player {player_id} in game {game_id}")
+            
+            # Find the player in the state
+            player = None
+            for p in state_to_use.get("players", []):
+                if p.get("player_id") == player_id:
+                    player = p
+                    break
+            
+            if not player:
+                logger.warning(f"Player {player_id} not found in game {game_id}")
+                return {"success": False, "message": "Player not found"}
+            
+            if player.get("is_human", False):
+                logger.warning(f"Player {player_id} is human, cannot get AI decision")
+                return {"success": False, "message": "Cannot get AI decision for human player"}
+            
+            # Check if it's this player's turn
+            current_player = state_to_use.get("current_player")
+            if current_player != player_id:
+                logger.warning(f"Not player {player_id}'s turn (current player is {current_player})")
+                return {
+                    "success": False, 
+                    "message": f"Not this player's turn. Current player is {current_player}"
+                }
+            
+            # Create an AI agent and get its decision
+            agent_type = player.get("agent_type", "heuristic")
+            logger.info(f"Creating {agent_type} agent for player {player_id}")
+            
+            try:
+                agent = create_agent(agent_type, player_id, state_to_use)
+                
+                # Get the decision
+                logger.info(f"Agent {agent_type} deciding action for player {player_id}")
+                action, reasoning = agent.decide_action(state_to_use)
+                
+                logger.info(f"Agent decision: {action} with reasoning: {reasoning}")
+                
+                return {
+                    "success": True,
+                    "player_id": player_id,
+                    "action": action,
+                    "reasoning": reasoning
+                }
+            except Exception as agent_error:
+                logger.error(f"Error creating or using agent: {str(agent_error)}")
+                logger.exception(agent_error)
+                return {
+                    "success": False,
+                    "message": f"Error with AI agent: {str(agent_error)}"
+                }
+        except Exception as e:
+            logger.error(f"Error in get_ai_decision: {str(e)}")
+            logger.exception(e)
+            return {
+                "success": False,
+                "message": f"Internal error: {str(e)}"
+            }
     
     @staticmethod
     def step_game(game_id: str) -> dict:
         """
         Advance the game by one step (for automated testing)
         """
-        with cache_lock:
-            game_data = GAME_CACHE.get(game_id)
-        
-        if not game_data:
-            return {"success": False, "message": "Game not found"}
-        
-        # Get the current game state
-        current_state = game_data["state"]
-        
-        # Get the current player
-        current_player_id = current_state.get("current_player")
-        
-        if current_player_id is None:
-            return {"success": False, "message": "No current player"}
-        
-        # Find the player in the state
-        player = None
-        for p in current_state.get("players", []):
-            if p.get("player_id") == current_player_id:
-                player = p
-                break
-        
-        if not player:
-            return {"success": False, "message": "Current player not found"}
-        
-        # Get AI decision
-        agent_type = player.get("agent_type", "heuristic")
-        agent = create_agent(agent_type, current_player_id, current_state)
-        
-        # Get the decision
-        action, reasoning = agent.decide_action(current_state)
-        
-        # Apply the action
-        action_result, new_state = apply_action(
-            current_state,
-            current_player_id, 
-            action
-        )
-        
-        # Update history
-        game_data["history"].append({
-            "player_id": current_player_id,
-            "action": action,
-            "result": action_result,
-            "timestamp": time.time(),
-            "step": len(game_data["history"])
-        })
-        
-        # Update the game state in cache
-        game_data["state"] = new_state
-        
-        with cache_lock:
-            GAME_CACHE[game_id] = game_data
-        
-        # Return the step information
-        return {
-            "success": True,
-            "step": len(game_data["history"]) - 1,
-            "action": {
-                "player_id": current_player_id,
-                "player_role": player.get("current_role"),
-                "action_type": action.get("action_type"),
-                "action_name": action.get("action_name"),
-                "action_params": action.get("action_params", {})
-            },
-            "state_update": {
-                "phase": new_state.get("phase"),
-                "round": new_state.get("round"),
-                "speech_round": new_state.get("speech_round"),
-                "current_player": new_state.get("current_player"),
-                "cumulative_rewards": new_state.get("cumulative_rewards", {})
+        try:
+            logger.info(f"Stepping game {game_id}")
+            
+            with cache_lock:
+                game_data = GAME_CACHE.get(game_id)
+            
+            if not game_data:
+                logger.warning(f"Game {game_id} not found")
+                return {"success": False, "message": "Game not found"}
+            
+            # Get the current game state
+            current_state = game_data["state"]
+            
+            # Check if game is over
+            if current_state.get("game_over", False):
+                logger.info(f"Game {game_id} is over, cannot step further")
+                return {
+                    "success": False, 
+                    "message": "Game is already over", 
+                    "game_over": True,
+                    "winner": current_state.get("winner")
+                }
+            
+            # Get the current player
+            current_player_id = current_state.get("current_player")
+            
+            if current_player_id is None:
+                logger.warning(f"Game {game_id} has no current player")
+                return {"success": False, "message": "No current player"}
+            
+            logger.info(f"Current player is {current_player_id}")
+            
+            # Find the player in the state
+            player = None
+            for p in current_state.get("players", []):
+                if p.get("player_id") == current_player_id:
+                    player = p
+                    break
+            
+            if not player:
+                logger.warning(f"Current player {current_player_id} not found in game {game_id}")
+                return {"success": False, "message": "Current player not found"}
+            
+            # Check if player is human - cannot step automatically for human players
+            if player.get("is_human", False):
+                logger.warning(f"Player {current_player_id} is human, cannot auto-step")
+                return {
+                    "success": False, 
+                    "message": "Cannot automatically step for human player",
+                    "player_id": current_player_id,
+                    "is_human": True
+                }
+            
+            try:
+                # Get AI decision
+                agent_type = player.get("agent_type", "heuristic")
+                logger.info(f"Creating {agent_type} agent for player {current_player_id}")
+                
+                agent = create_agent(agent_type, current_player_id, current_state)
+                
+                # Get the decision
+                logger.info(f"Agent deciding action for player {current_player_id}")
+                action, reasoning = agent.decide_action(current_state)
+                
+                logger.info(f"Agent decision: {action} with reasoning: {reasoning}")
+                
+                # Apply the action
+                logger.info(f"Applying action for player {current_player_id}")
+                action_result, new_state = apply_action(
+                    current_state,
+                    current_player_id, 
+                    action
+                )
+                
+                # Update history
+                history_entry = {
+                    "player_id": current_player_id,
+                    "action": action,
+                    "result": action_result,
+                    "timestamp": time.time(),
+                    "step": len(game_data["history"])
+                }
+                game_data["history"].append(history_entry)
+                
+                # Update the game state in cache
+                game_data["state"] = new_state
+                
+                with cache_lock:
+                    GAME_CACHE[game_id] = game_data
+                
+                logger.info(f"Step completed for game {game_id}, player {current_player_id}")
+                
+                # Return the step information
+                return {
+                    "success": True,
+                    "step": len(game_data["history"]) - 1,
+                    "action": {
+                        "player_id": current_player_id,
+                        "player_role": player.get("current_role"),
+                        "action_type": action.get("action_type"),
+                        "action_name": action.get("action_name"),
+                        "action_params": action.get("action_params", {})
+                    },
+                    "state_update": {
+                        "phase": new_state.get("phase"),
+                        "round": new_state.get("round"),
+                        "speech_round": new_state.get("speech_round"),
+                        "current_player": new_state.get("current_player"),
+                        "cumulative_rewards": new_state.get("cumulative_rewards", {})
+                    }
+                }
+            except Exception as action_error:
+                logger.error(f"Error during step action: {str(action_error)}")
+                logger.exception(action_error)
+                return {
+                    "success": False,
+                    "message": f"Error during step: {str(action_error)}"
+                }
+        except Exception as e:
+            logger.error(f"Error in step_game: {str(e)}")
+            logger.exception(e)
+            return {
+                "success": False,
+                "message": f"Internal error: {str(e)}"
             }
-        }
     
     @staticmethod
     def get_game_result(game_id: str) -> dict:
@@ -893,23 +979,100 @@ def apply_action(current_state, player_id, action):
     Returns:
         tuple: (action_result, new_state)
     """
-    # Create a temporary environment from the current state
-    env = WerewolfEnv()
-    env.game_state = current_state
-    
-    # Apply the action
-    next_state, reward, terminated, truncated, info = env.step(action)
-    
-    # Return the action result and new state
-    action_result = {
-        "success": info.get("success", True),
-        "message": info.get("message", "Action applied successfully"),
-        "terminated": terminated,
-        "truncated": truncated,
-        "reward": reward
-    }
-    
-    return action_result, next_state
+    try:
+        # 创建一个临时环境
+        env = WerewolfEnv()
+        
+        # 设置游戏状态
+        env.game_state = current_state
+        
+        # 设置当前玩家ID
+        env.current_player_id = player_id
+        
+        # 日志记录
+        logger.info(f"Applying action for player {player_id}: {action}")
+        
+        # 直接解析动作并执行，而不是调用step方法
+        from werewolf_env.actions import Action, create_night_action, create_speech, create_vote, create_no_action
+        
+        # 如果action已经是Action对象，直接使用
+        if isinstance(action, Action):
+            action_obj = action
+        else:
+            # 解析动作
+            if isinstance(action, dict):
+                action_type = action.get('action_type')
+                
+                if action_type == 'NIGHT_ACTION':
+                    # 夜晚动作
+                    action_name = action.get('action_name', '')
+                    action_params = action.get('action_params', {})
+                    
+                    # 获取玩家角色
+                    player_role = None
+                    for player in current_state.get('players', []):
+                        if player.get('player_id') == player_id:
+                            player_role = player.get('original_role')
+                            break
+                            
+                    if not player_role:
+                        action_obj = create_no_action(player_id)
+                    else:
+                        # 创建夜晚动作，使用**action_params将参数作为关键字参数传递
+                        action_obj = create_night_action(player_id, player_role, action_name, **action_params)
+                        
+                elif action_type == 'DAY_SPEECH':
+                    # 白天发言
+                    speech_type = action.get('speech_type', 'GENERAL')
+                    content = action.get('content', '')
+                    action_obj = create_speech(player_id, speech_type, content=content)
+                    
+                elif action_type == 'VOTE':
+                    # 投票
+                    target_id = action.get('target_id', 0)
+                    action_obj = create_vote(player_id, target_id)
+                    
+                else:
+                    # 默认无动作
+                    action_obj = create_no_action(player_id)
+            else:
+                # 默认无动作
+                action_obj = create_no_action(player_id)
+        
+        # 直接执行动作
+        result = env._execute_action(action_obj)
+        
+        # 更新当前玩家ID
+        if isinstance(env.game_state, dict) and 'current_player' in env.game_state:
+            next_player = env.game_state['current_player']
+        else:
+            # 如果无法获取下一个玩家，使用默认的下一个玩家
+            next_player = (player_id + 1) % len(env.game_state.get('players', []))
+            
+        # 更新状态
+        new_state = env.game_state
+        
+        # 构造动作结果
+        action_result = {
+            "success": result.get('success', True),
+            "message": result.get('message', "Action executed successfully"),
+            "result": result.get('result', None)
+        }
+        
+        logger.info(f"Action result: {action_result}")
+        return action_result, new_state
+        
+    except Exception as e:
+        logger.error(f"Error applying action: {str(e)}")
+        logger.exception(e)
+        
+        # 返回错误结果和原始状态
+        error_result = {
+            "success": False,
+            "message": f"Error applying action: {str(e)}",
+            "error": str(e)
+        }
+        return error_result, current_state
 
 
 def create_agent(agent_type, player_id, state):
@@ -924,28 +1087,28 @@ def create_agent(agent_type, player_id, state):
     Returns:
         Agent: An AI agent
     """
-    # Get player role from state for context
-    player_role = None
-    for player in state.get("players", []):
-        if player.get("player_id") == player_id:
-            player_role = player.get("current_role")
-            break
-    
-    # Create agent based on type
-    if agent_type == "random":
-        agent = RandomAgent(player_id)
-    elif agent_type == "heuristic":
-        agent = HeuristicAgent(player_id)
-    else:
-        # Default to heuristic agent
-        agent = HeuristicAgent(player_id)
-    
-    # Set agent's current role if available
-    if hasattr(agent, "current_role") and player_role:
-        agent.current_role = player_role
-    
-    # Initialize the agent with the current state
-    if hasattr(agent, "initialize"):
-        agent.initialize(state)
-    
-    return agent 
+    try:
+        # 导入agent_factory
+        from agents.agent_factory import create_agent as factory_create_agent
+        
+        logger.info(f"创建代理: 类型={agent_type}, 玩家ID={player_id}")
+        
+        # 使用agent_factory创建代理
+        agent = factory_create_agent(agent_type, player_id=player_id)
+        
+        # 初始化代理，如果有initialize方法
+        if hasattr(agent, "initialize"):
+            logger.info(f"初始化代理: 玩家ID={player_id}")
+            agent.initialize(state)
+            
+        # 检查代理是否有decide_action方法
+        if not hasattr(agent, "decide_action"):
+            raise AttributeError(f"代理缺少决策方法: decide_action")
+            
+        logger.info(f"代理创建成功: 玩家ID={player_id}, 类型={agent_type}")
+        return agent
+        
+    except Exception as e:
+        logger.error(f"创建代理失败: {str(e)}")
+        logger.exception(e)
+        raise 
