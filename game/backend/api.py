@@ -7,19 +7,18 @@ It connects the frontend with the game manager.
 
 import logging
 from fastapi import APIRouter, HTTPException, Path, Query, Body
-from typing import Optional, Dict, Any
+from typing import Optional
 
 from game.backend.game_manager import GameManager
 from game.backend.models import (
     CreateGameRequest, 
     GameConfig, 
-    PlayerConfig,
-    GameStateResponse, 
+    NightActionRequest,
+    NightActionResponse,
     PlayerAction,
     ActionResponse,
     AIDecisionRequest,
     AIDecisionResponse,
-    GameStepResponse,
     GameResultResponse,
     CreateGameResponse,
     JoinGameRequest
@@ -87,7 +86,7 @@ async def create_game(request: CreateGameRequest):
 
 @router.get("/game/create-test", response_model=CreateGameResponse)
 async def create_test_game(
-    test_game_type: str = Query("heuristic", description="AI type to use (options: random, heuristic, heuristic_villager_random_werewolf, random_villager_heuristic_werewolf)"),
+    test_game_type: str = Query("heuristic", description="AI type to use (options: random, heuristic, heuristic_villager_random_werewolf, random_villager_heuristic_werewolf, random_mix)"),
     num_players: int = Query(6, description="Number of players in the game", gt=0),
     seed: Optional[int] = Query(None, description="Random seed for reproducible testing")
 ):
@@ -112,6 +111,9 @@ async def create_test_game(
                 detail=result.get("message", "Failed to create test game")
             )
             
+        # 添加test_game_type到响应中
+        result["test_game_type"] = test_game_type
+            
         return result
     except Exception as e:
         logger.error(f"Error in create_test_game endpoint: {str(e)}")
@@ -135,24 +137,6 @@ async def join_game(
         "message": "Successfully joined game and started",
         "state": GameManager.get_game_state(game_id).get("state", {})
     }
-
-
-@router.get("/game/state/{game_id}", response_model=GameStateResponse)
-async def get_game_state(
-    game_id: str = Path(..., description="The ID of the game"),
-    player_id: Optional[int] = Query(None, description="ID of the player requesting the state")
-):
-    """
-    Retrieves the current game state, including visible information for the current player.
-    
-    If player_id is provided, information will be filtered based on what that player can see.
-    """
-    result = GameManager.get_game_state(game_id, player_id)
-    
-    if not result.get("success", False):
-        raise HTTPException(status_code=404, detail=result.get("message", "Game not found"))
-    
-    return result
 
 
 @router.post("/game/action", response_model=ActionResponse)
@@ -196,22 +180,18 @@ async def get_ai_decision(request: AIDecisionRequest = Body(..., description="AI
     return result
 
 
-@router.post("/game/step", response_model=GameStepResponse)
-async def step_game(game_request: Dict[str, str] = Body(..., description="Game ID")):
+@router.post("/game/night_action", response_model=NightActionResponse)
+async def night_action(request: NightActionRequest):
     """
-    Automatically advances the game by executing the next action in sequence using AI decision-making.
-    
-    This is useful for running simulations or automated games.
+    Executes a night action for a player.
     """
-    game_id = game_request.get("game_id")
-    if not game_id:
-        raise HTTPException(status_code=400, detail="Game ID is required")
+    result = GameManager.auto_night_action(
+        player_id=request.player_id,
+        game_state=request.game_state,
+        role=request.role
+    )
     
-    result = GameManager.step_game(game_id)
-    
-    if not result.get("success", False):
-        raise HTTPException(status_code=400, detail=result.get("message", "Failed to step game"))
-    
+    print(f"Night action result: {result}")
     return result
 
 

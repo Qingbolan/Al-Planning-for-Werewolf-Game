@@ -116,4 +116,55 @@ class RandomAgent(BaseAgent):
         target_id = self.get_random_player_except_self()
         action = create_vote(self.player_id, target_id)
         self.log_action(action)
-        return action 
+        return action
+
+    def decide_action(self, game_state) -> Tuple[Dict[str, Any], str]:
+        """
+        决定要执行的动作并提供理由
+        
+        Args:
+            game_state: 游戏状态
+            
+        Returns:
+            Tuple[Dict, str]: (动作，理由)
+        """
+        # 确保初始化
+        if self.original_role is None:
+            self.initialize(game_state)
+        
+        # 获取随机动作
+        action = self.get_action(game_state)
+        
+        # 随机理由
+        reasons = [
+            "随机选择的动作",
+            "这看起来是个好主意",
+            "我觉得这样做很有趣",
+            "随机策略",
+            "这是我的直觉"
+        ]
+        reasoning = random.choice(reasons)
+        
+        # 转换Action对象为字典（如果需要）
+        if not isinstance(action, dict):
+            if hasattr(action, 'to_dict'):
+                action_dict = action.to_dict()
+            else:
+                # 手动转换
+                action_dict = {
+                    'action_type': getattr(action, 'action_type', 'UNKNOWN'),
+                }
+                
+                # 根据不同类型添加特定属性
+                if hasattr(action, 'action_name'):
+                    action_dict['action_name'] = action.action_name
+                    action_dict['action_params'] = getattr(action, 'action_params', {})
+                elif hasattr(action, 'content'):
+                    action_dict['speech_type'] = action.content.get('type', 'GENERAL')
+                    action_dict['content'] = action.content
+                elif hasattr(action, 'target_id'):
+                    action_dict['target_id'] = action.target_id
+        else:
+            action_dict = action
+        
+        return action_dict, reasoning 

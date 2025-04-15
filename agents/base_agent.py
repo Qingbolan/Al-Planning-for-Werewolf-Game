@@ -35,17 +35,39 @@ class BaseAgent(ABC):
         self.current_phase = None
         self.action_history = []
     
-    def initialize(self, game_state: GameState) -> None:
+    def initialize(self, game_state) -> None:
         """
         Initialize agent state
         
         Args:
-            game_state: Game state
+            game_state: Game state (can be dict or GameState object)
         """
         self.game_state = game_state
-        self.original_role = game_state.players[self.player_id]['original_role']
-        self.current_role = game_state.players[self.player_id]['current_role']
-        self.current_phase = game_state.phase
+        
+        # 处理字典格式的game_state
+        if isinstance(game_state, dict):
+            players = game_state.get('players', [])
+            # 查找当前玩家信息
+            player = None
+            for p in players:
+                if p.get('player_id') == self.player_id:
+                    player = p
+                    break
+                    
+            if player:
+                self.original_role = player.get('original_role')
+                self.current_role = player.get('current_role')
+            else:
+                # 找不到玩家信息，使用默认值
+                self.original_role = "unknown"
+                self.current_role = "unknown"
+                
+            self.current_phase = game_state.get('phase')
+        else:
+            # 处理GameState对象格式
+            self.original_role = game_state.players[self.player_id]['original_role']
+            self.current_role = game_state.players[self.player_id]['current_role']
+            self.current_phase = game_state.phase
         
         # Create role-specific belief updater
         self.belief_updater = create_belief_updater(self.player_id, game_state)
@@ -188,9 +210,17 @@ class BaseAgent(ABC):
         """
         if not self.game_state:
             return random.randint(0, 5)  # Default random selection
-            
-        num_players = len(self.game_state.players)
-        other_players = [i for i in range(num_players) if i != self.player_id]
+        
+        # 处理字典格式的game_state
+        if isinstance(self.game_state, dict):
+            players = self.game_state.get('players', [])
+            num_players = len(players)
+            other_players = [p.get('player_id') for p in players 
+                            if p.get('player_id') != self.player_id]
+        else:
+            # 处理GameState对象格式
+            num_players = len(self.game_state.players)
+            other_players = [i for i in range(num_players) if i != self.player_id]
         
         if other_players:
             return random.choice(other_players)
@@ -217,30 +247,56 @@ class BaseAgent(ABC):
         # Common action logging logic
         print(f"Agent {self.player_id} executes action {action}")
 
-    def get_action(self, game_state: GameState) -> Action:
+    def get_action(self, game_state) -> Action:
         """
         获取动作 - 兼容训练器接口
         
         Args:
-            game_state: 游戏状态
+            game_state: 游戏状态 (可以是字典或GameState对象)
             
         Returns:
             Action
         """
         # 将GameState转换为观察结果格式
-        observation = {
-            'phase': game_state.phase,
-            'round': game_state.round,
-            'current_player': game_state.get_current_player(),
-            'speech_round': getattr(game_state, 'speech_round', 0),
-            'votes': getattr(game_state, 'votes', {}),
-        }
+        if isinstance(game_state, dict):
+            # 如果已经是字典格式，直接使用
+            observation = {
+                'phase': game_state.get('phase'),
+                'round': game_state.get('round', 0),
+                'current_player': game_state.get('current_player'),
+                'speech_round': game_state.get('speech_round', 0),
+                'votes': game_state.get('votes', {})
+            }
+            
+            # 查找角色信息
+            player = None
+            for p in game_state.get('players', []):
+                if p.get('player_id') == self.player_id:
+                    player = p
+                    break
+                    
+            if player:
+                observation['original_role'] = player.get('original_role')
+                observation['current_role'] = player.get('current_role')
+        else:
+            # 原始GameState对象格式转换
+            observation = {
+                'phase': game_state.phase,
+                'round': game_state.round,
+                'current_player': game_state.get_current_player(),
+                'speech_round': getattr(game_state, 'speech_round', 0),
+                'votes': getattr(game_state, 'votes', {}),
+            }
+            
+            # 加入角色信息
+            if self.player_id < len(game_state.players):
+                player_data = game_state.players[self.player_id]
+                observation['original_role'] = player_data['original_role']
+                observation['current_role'] = player_data['current_role']
         
-        # 加入角色信息
-        if self.player_id < len(game_state.players):
-            player_data = game_state.players[self.player_id]
-            observation['original_role'] = player_data['original_role']
-            observation['current_role'] = player_data['current_role']
+        # 如果没有初始化过，先初始化
+        if self.original_role is None:
+            self.initialize(game_state)
         
         # 调用act方法获取动作
         return self.act(observation) 

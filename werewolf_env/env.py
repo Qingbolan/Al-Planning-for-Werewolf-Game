@@ -157,58 +157,103 @@ class WerewolfEnv(gym.Env):
         
         return obs, info
     
-    def step(self, action: int) -> Tuple[Dict[str, Any], float, bool, bool, Dict[str, Any]]:
+    def step(self, action: Union[int, Dict[str, Any]]) -> Tuple[Dict[str, Any], float, bool, bool, Dict[str, Any]]:
         """
-        Execute action
+        Execute step in environment
         
         Args:
-            action: Action ID
+            action: Action to execute
             
         Returns:
-            (observation, reward, terminated, truncated, info)
+            Tuple of (observation, reward, terminated, truncated, info)
         """
-        if self.done:
-            raise RuntimeError("Environment is done, please call reset() first")
-        
-        # Get current player
-        player_id = self.current_player_id
-        if player_id < 0:
-            raise RuntimeError("Invalid current player ID")
-        
-        # Parse and execute action
-        action_obj = self._parse_action(action, player_id)
-        result = self._execute_action(action_obj)
-        
-        # Update current player
-        self.current_player_id = self.game_state.get_current_player()
-        
-        # Calculate reward
-        reward = self._compute_reward(player_id, action_obj, result)
-        self.rewards[player_id] += reward
-        
-        # Check if game is over
-        terminated = self.game_state.phase == 'end'
-        self.done = terminated
-        
-        # Check if maximum steps exceeded
-        truncated = False
-        
-        # Get observation and info
-        obs = self._get_observation()
-        info = self._get_info()
-        
-        # Render (if needed)
-        if self.render_mode == 'human':
-            self.render()
+        try:
+            if self.done:
+                raise RuntimeError("Environment is done, please call reset() first")
             
-        return obs, reward, terminated, truncated, info
+            # Get current player
+            player_id = self.current_player_id
+            if player_id < 0:
+                raise RuntimeError("Invalid current player ID")
+            
+            # 检查game_state类型
+            if isinstance(self.game_state, dict):
+                # 如果是字典，按字典方式处理
+                phase = self.game_state.get('phase')
+                terminated = phase == 'end'
+                
+                # Parse and execute action
+                action_obj = self._parse_action(action, player_id)
+                result = self._execute_action(action_obj)
+                
+                # 存储动作执行结果
+                self.action_result = result
+                
+                # 更新当前玩家
+                if 'current_player' in self.game_state:
+                    self.current_player_id = self.game_state['current_player']
+                
+                # 计算奖励
+                reward = 0.0
+                
+                # 获取观察和信息
+                obs = self._get_observation()
+                info = self._get_info()
+                
+                return obs, reward, terminated, False, info
+            else:
+                # 原来的对象方式处理
+                # Parse and execute action
+                action_obj = self._parse_action(action, player_id)
+                result = self._execute_action(action_obj)
+                
+                # 存储动作执行结果，以便在info中返回
+                self.action_result = result
+                
+                # Update current player
+                self.current_player_id = self.game_state.get_current_player()
+                
+                # Calculate reward
+                reward = self._compute_reward(player_id, action_obj, result)
+                self.rewards[player_id] += reward
+                
+                # Check if game is over
+                terminated = self.game_state.phase == 'end'
+                self.done = terminated
+                
+                # Check if maximum steps exceeded
+                truncated = False
+                
+                # Get observation and info
+                obs = self._get_observation()
+                info = self._get_info()
+                
+                # Render (if needed)
+                if self.render_mode == 'human':
+                    self.render()
+                    
+                return obs, reward, terminated, truncated, info
+            
+        except Exception as e:
+            # 处理异常，返回有意义的错误信息
+            import traceback
+            error_info = {
+                'error': str(e),
+                'traceback': traceback.format_exc(),
+                'success': False,
+                'message': f"Error executing step: {str(e)}"
+            }
+            
+            # 返回空观察和错误信息
+            empty_obs = {}
+            return empty_obs, 0.0, False, False, error_info
     
-    def _parse_action(self, action: Union[int, Action], player_id: int) -> Action:
+    def _parse_action(self, action: Union[int, Dict, Action], player_id: int) -> Action:
         """
         Parse action ID into specific action object
         
         Args:
-            action: Action ID or action object
+            action: Action ID, action dict, or action object
             player_id: Player ID
             
         Returns:
@@ -218,16 +263,62 @@ class WerewolfEnv(gym.Env):
         if isinstance(action, Action):
             return action
             
+        # If action is a dict, convert to action object
+        if isinstance(action, dict):
+            action_type = action.get('action_type')
+            
+            if action_type == 'NIGHT_ACTION':
+                action_name = action.get('action_name', '')
+                action_params = action.get('action_params', {})
+                
+                # 获取玩家原始角色
+                player_role = None
+                if isinstance(self.game_state, dict):
+                    for player in self.game_state.get('players', []):
+                        if player.get('player_id') == player_id:
+                            player_role = player.get('original_role')
+                            break
+                else:
+                    player_role = self.game_state.players[player_id]['original_role']
+                    
+                return create_night_action(player_id, player_role, action_name, **{})
+                
+            elif action_type == 'DAY_SPEECH':
+                speech_type = action.get('speech_type', 'GENERAL')
+                content = action.get('content', '')
+                return create_speech(player_id, speech_type, content=content)
+                
+            elif action_type == 'VOTE':
+                target_id = action.get('target_id', 0)
+                return create_vote(player_id, target_id)
+                
+            else:
+                return create_no_action(player_id)
+        
         # Get current phase
-        phase = self.game_state.phase
+        if isinstance(self.game_state, dict):
+            phase = self.game_state.get('phase', 'night')
+        else:
+            phase = self.game_state.phase
         
         # Parse action based on different phases
         if phase == 'night':
             # Night action
-            role = self.game_state.players[player_id]['original_role']
+            if isinstance(self.game_state, dict):
+                # 从字典获取角色
+                player_role = None
+                for player in self.game_state.get('players', []):
+                    if player.get('player_id') == player_id:
+                        player_role = player.get('original_role')
+                        break
+                
+                if not player_role:
+                    return create_no_action(player_id)
+            else:
+                player_role = self.game_state.players[player_id]['original_role']
             
             # Get available night actions for this role
-            available_actions = self.config.get('night_actions', {}).get(role, [])
+            available_actions = self.config.get('night_actions', {}).get(player_role, [])
             
             if not available_actions:
                 # Role has no night actions
@@ -238,8 +329,7 @@ class WerewolfEnv(gym.Env):
             action_name = available_actions[action_index]
             
             # Create night action
-            # Note: This is simplified, might need more parameters in practice
-            return create_night_action(player_id, role, action_name)
+            return create_night_action(player_id, player_role, action_name, **{})
             
         elif phase == 'day':
             # Day speech - Modified to use templates
@@ -252,7 +342,12 @@ class WerewolfEnv(gym.Env):
             template = templates[template_index]
             
             # Determine target player (if template needs it)
-            target_id = (action // len(templates)) % self.config['num_players']
+            if isinstance(self.game_state, dict):
+                num_players = len(self.game_state.get('players', []))
+            else:
+                num_players = self.config['num_players']
+                
+            target_id = (action // len(templates)) % num_players
             
             # Create speech based on template type
             if template == 'CLAIM_ROLE':
@@ -269,8 +364,13 @@ class WerewolfEnv(gym.Env):
                 return create_no_action(player_id)
             
         elif phase == 'vote':
-            # Vote - Modified for reversed victory conditions
-            target_id = action % self.config['num_players']
+            # Vote
+            if isinstance(self.game_state, dict):
+                num_players = len(self.game_state.get('players', []))
+            else:
+                num_players = self.config['num_players']
+                
+            target_id = action % num_players
             return create_vote(player_id, target_id)
             
         # Default to no action
@@ -288,38 +388,192 @@ class WerewolfEnv(gym.Env):
         """
         result = {'success': False, 'message': 'Unknown action'}
         
-        if action.action_type == ActionType.NIGHT_ACTION:
-            if isinstance(action, NightAction):
-                result = self.game_state.perform_night_action(action.action_params)
+        try:
+            # 检查game_state类型
+            if isinstance(self.game_state, dict):
+                # 如果是字典，按字典方式处理
+                player_id = action.player_id
                 
-        elif action.action_type == ActionType.DAY_SPEECH:
-            if isinstance(action, DaySpeech):
-                # Record speech content to game state
-                self.game_state.record_speech(action.player_id, action.content)
-                result = {'success': True, 'message': f'Player {action.player_id} completed speech'}
+                if action.action_type == ActionType.NIGHT_ACTION:
+                    if isinstance(action, NightAction):
+                        # 模拟夜间动作结果
+                        # 获取玩家角色
+                        player_role = None
+                        for player in self.game_state.get('players', []):
+                            if player.get('player_id') == player_id:
+                                player_role = player.get('original_role')
+                                break
+                                
+                        # 处理特定角色的动作
+                        if player_role == 'werewolf' and action.action_name == 'check_other_werewolves':
+                            # 狼人查看其他狼人
+                            werewolf_indices = self.game_state.get('werewolf_indices', [])
+                            # 排除当前玩家
+                            other_werewolves = [idx for idx in werewolf_indices if idx != player_id]
+                            result = {
+                                'success': True,
+                                'message': 'Checked other werewolves',
+                                'result': other_werewolves
+                            }
+                        # 处理其他角色的动作...
+                        else:
+                            result = {
+                                'success': True,
+                                'message': f'Executed night action for {player_role}: {action.action_name}',
+                                'action': action.action_name,
+                                'params': action.action_params
+                            }
+                        
+                        # 更新当前玩家
+                        # 查找角色在action_order中的位置
+                        action_order = self.game_state.get('action_order', [])
+                        if player_role in action_order:
+                            # 确定下一个角色
+                            current_index = action_order.index(player_role)
+                            next_index = (current_index + 1) % len(action_order)
+                            next_role = action_order[next_index]
+                            
+                            # 查找具有该角色的玩家
+                            for player in self.game_state.get('players', []):
+                                if player.get('original_role') == next_role:
+                                    self.game_state['current_player'] = player.get('player_id')
+                                    break
+                        
+                elif action.action_type == ActionType.DAY_SPEECH:
+                    if isinstance(action, DaySpeech):
+                        # 记录发言内容
+                        speech_history = self.game_state.get('speech_history', [])
+                        speech_history.append({
+                            'player_id': player_id,
+                            'content': action.content,
+                            'round': self.game_state.get('speech_round', 0)
+                        })
+                        self.game_state['speech_history'] = speech_history
+                        
+                        result = {
+                            'success': True,
+                            'message': f'Player {player_id} completed speech'
+                        }
+                        
+                        # 更新当前玩家
+                        next_player = (player_id + 1) % len(self.game_state.get('players', []))
+                        self.game_state['current_player'] = next_player
+                        
+                        # 如果所有玩家都发言完毕，进入下一轮
+                        if next_player == 0:
+                            self.game_state['speech_round'] = self.game_state.get('speech_round', 0) + 1
+                            
+                            # 如果达到最大发言轮数，进入投票阶段
+                            if self.game_state.get('speech_round', 0) >= self.game_state.get('max_speech_rounds', 3):
+                                self.game_state['phase'] = 'vote'
+                        
+                elif action.action_type == ActionType.VOTE:
+                    if isinstance(action, VoteAction):
+                        # 检查是否是投票阶段
+                        if self.game_state.get('phase') != 'vote':
+                            result = {
+                                'success': False,
+                                'message': 'Voting is only allowed in the voting phase'
+                            }
+                            return result
+                            
+                        # 记录投票
+                        votes = self.game_state.get('votes', {})
+                        votes[str(player_id)] = action.target_id
+                        self.game_state['votes'] = votes
+                        
+                        result = {
+                            'success': True,
+                            'message': f'Player {player_id} voted for player {action.target_id}'
+                        }
+                        
+                        # 更新当前玩家
+                        next_player = (player_id + 1) % len(self.game_state.get('players', []))
+                        self.game_state['current_player'] = next_player
+                        
+                        # 如果所有玩家都投票完毕，结束游戏
+                        if len(votes) == len(self.game_state.get('players', [])):
+                            self.game_state['phase'] = 'end'
+                            # 计算投票结果
+                            vote_counts = {}
+                            for target in votes.values():
+                                vote_counts[target] = vote_counts.get(target, 0) + 1
+                                
+                            max_votes = 0
+                            most_voted = -1
+                            for target, count in vote_counts.items():
+                                if count > max_votes:
+                                    max_votes = count
+                                    most_voted = target
+                                    
+                            # 设置投票结果
+                            self.game_state['voting_results'] = {
+                                'most_voted': most_voted,
+                                'vote_counts': vote_counts
+                            }
+                            
+                            # 确定获胜团队
+                            if most_voted in self.game_state.get('werewolf_indices', []):
+                                self.game_state['winner'] = 'villager'  # 狼人被投出，村民胜利
+                            else:
+                                self.game_state['winner'] = 'werewolf'  # 平民被投出，狼人胜利
                 
-        elif action.action_type == ActionType.VOTE:
-            if isinstance(action, VoteAction):
-                # Check if it's voting phase
-                if self.game_state.phase != 'vote':
-                    result = {'success': False, 'message': 'Voting is only allowed in the final round'}
-                    return result
+                elif action.action_type == ActionType.NO_ACTION:
+                    # 无动作，进入下一玩家
+                    next_player = (player_id + 1) % len(self.game_state.get('players', []))
+                    self.game_state['current_player'] = next_player
+                    result = {
+                        'success': True,
+                        'message': 'No action'
+                    }
+                    
+                return result
                 
-                # Record vote to game state
-                vote_success = self.game_state.record_vote(action.player_id, action.target_id)
-                if vote_success:
-                    result = {'success': True, 'message': f'Player {action.player_id} voted for player {action.target_id}'}
-                    # Move to next player only if vote was successful
+            else:
+                # 原来的对象方式处理
+                if action.action_type == ActionType.NIGHT_ACTION:
+                    if isinstance(action, NightAction):
+                        result = self.game_state.perform_night_action(action.action_params)
+                        
+                elif action.action_type == ActionType.DAY_SPEECH:
+                    if isinstance(action, DaySpeech):
+                        # Record speech content to game state
+                        self.game_state.record_speech(action.player_id, action.content)
+                        result = {'success': True, 'message': f'Player {action.player_id} completed speech'}
+                        
+                elif action.action_type == ActionType.VOTE:
+                    if isinstance(action, VoteAction):
+                        # Check if it's voting phase
+                        if self.game_state.phase != 'vote':
+                            result = {'success': False, 'message': 'Voting is only allowed in the final round'}
+                            return result
+                        
+                        # Record vote to game state
+                        vote_success = self.game_state.record_vote(action.player_id, action.target_id)
+                        if vote_success:
+                            result = {'success': True, 'message': f'Player {action.player_id} voted for player {action.target_id}'}
+                            # Move to next player only if vote was successful
+                            self.game_state.next_player()
+                        else:
+                            result = {'success': False, 'message': f'Player {action.player_id} has already voted or invalid target'}
+                        
+                elif action.action_type == ActionType.NO_ACTION:
+                    # No action, proceed to next phase
                     self.game_state.next_player()
-                else:
-                    result = {'success': False, 'message': f'Player {action.player_id} has already voted or invalid target'}
-                
-        elif action.action_type == ActionType.NO_ACTION:
-            # No action, proceed to next phase
-            self.game_state.next_player()
-            result = {'success': True, 'message': 'No action'}
+                    result = {'success': True, 'message': 'No action'}
+                    
+            return result
             
-        return result
+        except Exception as e:
+            # 捕获所有异常并返回错误信息
+            import traceback
+            error_result = {
+                'success': False,
+                'message': f'Error executing action: {str(e)}',
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }
+            return error_result
     
     def _compute_reward(self, player_id: int, action: Action, result: Dict[str, Any]) -> float:
         """
@@ -346,7 +600,67 @@ class WerewolfEnv(gym.Env):
         if self.current_player_id < 0:
             return {}
             
-        return self.game_state.get_observation(self.current_player_id)
+        if isinstance(self.game_state, dict):
+            # 如果是字典，构造观察
+            observation = {
+                'phase': self.game_state.get('phase', 'night'),
+                'round': self.game_state.get('round', 0),
+                'speech_round': self.game_state.get('speech_round', 0),
+                'current_player': self.game_state.get('current_player', self.current_player_id),
+                'player_id': self.current_player_id
+            }
+            
+            # 获取当前玩家信息
+            current_player = None
+            for player in self.game_state.get('players', []):
+                if player.get('player_id') == self.current_player_id:
+                    current_player = player
+                    break
+                    
+            if current_player:
+                observation['original_role'] = current_player.get('original_role')
+                observation['current_role'] = current_player.get('current_role')
+                observation['team'] = current_player.get('team')
+                
+            # 添加其他玩家信息（隐藏角色）
+            players_info = []
+            for player in self.game_state.get('players', []):
+                player_id = player.get('player_id')
+                if player_id != self.current_player_id:
+                    # 隐藏角色信息
+                    players_info.append({
+                        'player_id': player_id,
+                        'name': player.get('name'),
+                        'is_human': player.get('is_human')
+                    })
+                else:
+                    # 包含当前玩家完整信息
+                    players_info.append(player)
+                    
+            observation['players'] = players_info
+            
+            # 投票信息
+            if 'votes' in self.game_state:
+                observation['votes'] = self.game_state['votes']
+                
+            # 中心牌信息 - 默认隐藏
+            center_cards = ['?' for _ in range(len(self.game_state.get('center_cards', [])))]
+            observation['center_cards'] = center_cards
+            
+            # 根据角色添加特定信息
+            current_role = current_player.get('original_role') if current_player else None
+            
+            # 狼人可以看到其他狼人
+            if current_role == 'werewolf':
+                werewolf_indices = self.game_state.get('werewolf_indices', [])
+                observation['werewolf_indices'] = werewolf_indices
+                
+            # 其他角色的特殊观察信息...
+            
+            return observation
+        else:
+            # 对象方式
+            return self.game_state.get_observation(self.current_player_id)
     
     def _get_info(self) -> Dict[str, Any]:
         """
@@ -355,13 +669,19 @@ class WerewolfEnv(gym.Env):
         Returns:
             Information dictionary
         """
-        return {
+        info = {
             'phase': self.game_state.phase,
             'round': self.game_state.round,
-            'speech_round': self.game_state.speech_round,  # Add speech round information
+            'speech_round': self.game_state.speech_round,
             'current_player': self.current_player_id,
             'cumulative_rewards': dict(self.rewards)
         }
+        
+        # 如果存在动作执行结果，添加到info中
+        if hasattr(self, 'action_result'):
+            info.update(self.action_result)
+            
+        return info
     
     def render(self) -> Optional[Union[str, np.ndarray]]:
         """

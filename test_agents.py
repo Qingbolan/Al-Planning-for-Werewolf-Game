@@ -1014,7 +1014,6 @@ def test_specific_scenarios(num_games, num_players, device="cpu", num_workers=4,
         scenario: Specified test scenario
         role_config: Path to role configuration file
         use_complete_roles: Whether to use complete set of roles
-        log_dirs: 日志目录字典
         
     Returns:
         Test result statistics
@@ -1123,7 +1122,6 @@ def compare_agent_types(num_games, num_players, device="cpu", num_workers=4, ren
         render: Whether to render
         role_config: Path to role configuration file
         use_complete_roles: Whether to use complete set of roles
-        log_dirs: 日志目录字典
         
     Returns:
         Comparison result
@@ -1198,7 +1196,6 @@ def test_rl_agent(model_path, num_games, num_players, device="cpu", num_workers=
         render: Whether to render
         role_config: Path to role configuration file
         use_complete_roles: Whether to use complete set of roles
-        log_dirs: 日志目录字典
         
     Returns:
         Test result

@@ -1,6 +1,6 @@
 {
-  "short_name": "狼人杀",
-  "name": "狼人杀游戏",
+  "short_name": "AI Werewolf Game",
+  "name": "AI Werewolf Game",
   "icons": [
     {
       "src": "favicon.ico",
@@ -8,7 +8,7 @@
       "type": "image/x-icon"
     },
     {
-      "src": "logo192.png",
+      "src": "logo.png",
       "type": "image/png",
       "sizes": "192x192"
     },

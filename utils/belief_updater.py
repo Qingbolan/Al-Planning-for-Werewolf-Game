@@ -14,18 +14,41 @@ from werewolf_env.actions import SpeechType
 class BeliefState:
     """Belief state class, representing beliefs about role distribution in the game"""
     
-    def __init__(self, game_state: GameState, player_id: int):
+    def __init__(self, game_state, player_id: int):
         """
         Initialize belief state
         
         Args:
-            game_state: Game state
+            game_state: Game state (dict or GameState object)
             player_id: Player ID
         """
         self.player_id = player_id
-        self.num_players = game_state.num_players
-        self.possible_roles = list(set(game_state.roles))
-        self.original_role = game_state.players[player_id]['original_role']
+        
+        # 处理字典格式的game_state
+        if isinstance(game_state, dict):
+            self.num_players = len(game_state.get('players', []))
+            # 从action_order或center_cards中获取可能的角色列表
+            self.possible_roles = list(set(game_state.get('action_order', [])))
+            if not self.possible_roles:
+                # 如果action_order为空，使用默认角色列表
+                self.possible_roles = ['werewolf', 'villager', 'seer', 'robber', 'troublemaker', 'insomniac', 'minion', 'mason', 'drunk', 'hunter', 'tanner']
+            
+            # 获取当前玩家原始角色
+            self.original_role = "unknown"
+            players = game_state.get('players', [])
+            for p in players:
+                if p.get('player_id') == player_id:
+                    self.original_role = p.get('original_role', 'unknown')
+                    break
+                    
+            # 获取中央牌数量
+            self.num_center_cards = len(game_state.get('center_cards', []))
+        else:
+            # 处理GameState对象
+            self.num_players = game_state.num_players
+            self.possible_roles = list(set(game_state.roles))
+            self.original_role = game_state.players[player_id]['original_role']
+            self.num_center_cards = game_state.num_center_cards
         
         # Initialize role probability distribution for each player (uniform distribution)
         self.beliefs = {}
@@ -44,7 +67,7 @@ class BeliefState:
         
         # Possible center card roles
         self.center_card_beliefs = {}
-        for i in range(game_state.num_center_cards):
+        for i in range(self.num_center_cards):
             self.center_card_beliefs[i] = {role: 1.0 / len(self.possible_roles) 
                                          for role in self.possible_roles}
         
@@ -196,18 +219,30 @@ class BeliefState:
 class RoleSpecificBeliefUpdater:
     """Base class for role-specific belief updaters"""
     
-    def __init__(self, player_id: int, game_state: GameState):
+    def __init__(self, player_id: int, game_state):
         """
         Initialize belief updater
         
         Args:
             player_id: Player ID
-            game_state: Game state
+            game_state: Game state (dict or GameState object)
         """
         self.player_id = player_id
         self.game_state = game_state
         self.belief_state = BeliefState(game_state, player_id)
-        self.role = game_state.players[player_id]['original_role']
+        
+        # 处理字典格式的game_state
+        if isinstance(game_state, dict):
+            players = game_state.get('players', [])
+            self.role = "unknown"
+            # 查找当前玩家信息
+            for p in players:
+                if p.get('player_id') == player_id:
+                    self.role = p.get('original_role', 'unknown')
+                    break
+        else:
+            # 处理GameState对象
+            self.role = game_state.players[player_id]['original_role']
     
     def update_with_night_action(self, action_result: Dict[str, Any]) -> None:
         """
@@ -298,8 +333,13 @@ class RoleSpecificBeliefUpdater:
         Args:
             votes: Vote results, key is voter ID, value is target ID
         """
+        # Check if votes is None or empty
+        if votes is None or not votes:
+            return
+            
         # Record vote history
-        self.belief_state.vote_history.update(votes)
+        if hasattr(self.belief_state, 'vote_history'):
+            self.belief_state.vote_history.update(votes)
         
         # Analyze voting patterns
         vote_counts = defaultdict(int)
@@ -482,7 +522,7 @@ class InsomniacBeliefUpdater(RoleSpecificBeliefUpdater):
 class EnhancedBeliefUpdater(RoleSpecificBeliefUpdater):
     """Enhanced belief updater with improved inference capabilities"""
     
-    def __init__(self, player_id: int, game_state: GameState):
+    def __init__(self, player_id: int, game_state):
         """Initialize the enhanced belief updater"""
         super().__init__(player_id, game_state)
         
@@ -498,8 +538,14 @@ class EnhancedBeliefUpdater(RoleSpecificBeliefUpdater):
         # Track known information based on player's own observations
         self.confirmed_information = {}
         
+        # 处理字典格式的game_state
+        if isinstance(game_state, dict):
+            num_players = len(game_state.get('players', []))
+        else:
+            num_players = game_state.num_players
+            
         # Initialize consistency scores (higher = more consistent/trustworthy)
-        for p_id in range(game_state.num_players):
+        for p_id in range(num_players):
             if p_id != player_id:
                 self.player_consistency_score[p_id] = 0.5  # Neutral starting point
     
@@ -609,6 +655,10 @@ class EnhancedBeliefUpdater(RoleSpecificBeliefUpdater):
         # Call the base update method
         super().update_with_votes(votes)
         
+        # Check if votes is None or empty
+        if votes is None or not votes:
+            return
+        
         # Track all votes
         for voter_id, target_id in votes.items():
             self.player_vote_history[voter_id].append(target_id)
@@ -671,6 +721,10 @@ class EnhancedBeliefUpdater(RoleSpecificBeliefUpdater):
         Returns:
             List of voter groups
         """
+        # Check if votes is None or empty
+        if votes is None or not votes:
+            return []
+            
         target_to_voters = defaultdict(list)
         
         # Group voters by their targets
@@ -741,18 +795,31 @@ BELIEF_UPDATER_MAP = {
 }
 
 
-def create_belief_updater(player_id: int, game_state: GameState) -> RoleSpecificBeliefUpdater:
+def create_belief_updater(player_id: int, game_state) -> RoleSpecificBeliefUpdater:
     """
     Create a belief updater for a player based on their role
     
     Args:
         player_id: Player ID
-        game_state: Game state
+        game_state: Game state (dict or GameState object)
         
     Returns:
         RoleSpecificBeliefUpdater instance
     """
-    role = game_state.players[player_id]['original_role'] if player_id < len(game_state.players) else 'unknown'
+    # 处理字典格式的game_state
+    if isinstance(game_state, dict):
+        # 从字典中获取role
+        players = game_state.get('players', [])
+        role = 'unknown'
+        
+        # 查找当前玩家的角色
+        for p in players:
+            if p.get('player_id') == player_id:
+                role = p.get('original_role', 'unknown')
+                break
+    else:
+        # 原来的GameState对象处理
+        role = game_state.players[player_id]['original_role'] if player_id < len(game_state.players) else 'unknown'
     
     # Create role-specific belief updater
     if role in BELIEF_UPDATER_MAP:
@@ -770,22 +837,34 @@ def create_belief_updater(player_id: int, game_state: GameState) -> RoleSpecific
         
         # Add special role-based enhancements
         if role == 'villager' or role == 'seer' or role == 'robber' or role == 'troublemaker' or role == 'insomniac':
+            # 处理字典格式的game_state
+            if isinstance(game_state, dict):
+                num_players = len(game_state.get('players', []))
+            else:
+                num_players = game_state.num_players
+                
             # Villager team gets better at detecting werewolves (improved accuracy)
-            for player_id in range(enhanced_updater.game_state.num_players):
-                if player_id != enhanced_updater.player_id:
+            for player_idx in range(num_players):
+                if player_idx != enhanced_updater.player_id:
                     # Substantially reduce initial werewolf probability for village team members
-                    if 'werewolf' in enhanced_updater.belief_state.beliefs[player_id]:
-                        enhanced_updater.belief_state.beliefs[player_id]['werewolf'] *= 0.7
+                    if 'werewolf' in enhanced_updater.belief_state.beliefs[player_idx]:
+                        enhanced_updater.belief_state.beliefs[player_idx]['werewolf'] *= 0.7
                     
                     # More aggressively detect inconsistent claims from potential werewolves
-                    enhanced_updater.player_consistency_score[player_id] = 0.7  # Start with higher trust baseline
+                    enhanced_updater.player_consistency_score[player_idx] = 0.7  # Start with higher trust baseline
         elif role == 'werewolf' or role == 'minion':
+            # 处理字典格式的game_state
+            if isinstance(game_state, dict):
+                num_players = len(game_state.get('players', []))
+            else:
+                num_players = game_state.num_players
+                
             # Slightly reduce werewolf team's ability to detect other werewolves (to balance gameplay)
-            for player_id in range(enhanced_updater.game_state.num_players):
-                if player_id != enhanced_updater.player_id:
+            for player_idx in range(num_players):
+                if player_idx != enhanced_updater.player_id:
                     # Adjust beliefs to make werewolf team slightly less effective
-                    if 'villager' in enhanced_updater.belief_state.beliefs[player_id]:
-                        enhanced_updater.belief_state.beliefs[player_id]['villager'] *= 0.9
+                    if 'villager' in enhanced_updater.belief_state.beliefs[player_idx]:
+                        enhanced_updater.belief_state.beliefs[player_idx]['villager'] *= 0.9
         
         # Normalize beliefs
         enhanced_updater.belief_state.normalize_beliefs()

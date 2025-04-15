@@ -1,16 +1,16 @@
 import React from 'react';
 import {
   Grid,
-  Paper,
   Typography,
   Avatar,
   Chip,
   Box,
   Card,
-  CardContent
+  Tooltip
 } from '@mui/material';
+import { useGame } from '../../context/GameContext';
 
-// 角色图片映射
+// Role images mapping
 const roleImages = {
   werewolf: '/images/werewolf.png',
   villager: '/images/villager.png',
@@ -22,60 +22,147 @@ const roleImages = {
   default: '/images/anyose.png',
 };
 
-// 获取角色图片
+// Get role image
 const getRoleImage = (role) => {
   return roleImages[role] || roleImages.default;
 };
 
-const PlayerList = ({ players, currentPlayerId }) => {
+// Role name formatting
+const formatRoleName = (role) => {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+};
+
+const PlayerList = ({ players: propsPlayers, currentPlayerId }) => {
+  // 从GameContext获取完整游戏状态
+  const { gameState } = useGame();
+  
+  // 优先使用GameContext中的玩家数据，如果没有则使用props传入的玩家数据
+  const players = gameState && gameState.players && gameState.players.length > 0 
+    ? gameState.players 
+    : propsPlayers;
+    
+  // 如果GameContext中有当前玩家ID，优先使用，否则使用props传入的
+  const activePlayerId = gameState && gameState.current_player_id !== undefined
+    ? gameState.current_player_id
+    : currentPlayerId;
+  
+  if (!players || players.length === 0) return null;
+  
   return (
-    <Paper sx={{ p: 2, mb: 3, backgroundColor: 'rgba(0,0,0,0.75)', color: '#fff' }}>
-      <Typography variant="h6" gutterBottom>
-        AI玩家 ({players.length})
-      </Typography>
-      <Grid container spacing={1}>
-        {players.map((player, index) => (
-          <Grid item xs={4} sm={3} md={2} key={index}>
+    <Grid container spacing={1.5}>
+      {players.map((player, index) => {
+        const isCurrentPlayer = activePlayerId === player.player_id;
+        return (
+          <Grid item xs={12} key={index}>
             <Card
+              elevation={isCurrentPlayer ? 3 : 1}
               sx={{
-                border: currentPlayerId === player.player_id
-                  ? '2px solid #f50057'
-                  : 'none',
-                backgroundColor: 'rgba(30,30,40,0.9)',
+                border: isCurrentPlayer
+                  ? '1px solid #f50057'
+                  : '1px solid rgba(255,255,255,0.12)',
+                backgroundColor: isCurrentPlayer 
+                  ? 'rgba(245,0,87,0.08)'
+                  : 'rgba(30,30,40,0.7)',
                 color: '#fff',
-                minHeight: '140px',
                 display: 'flex',
-                flexDirection: 'column',
-                p: 1
+                borderRadius: 2,
+                transition: 'all 0.2s ease',
+                '&:hover': {
+                  backgroundColor: isCurrentPlayer 
+                    ? 'rgba(245,0,87,0.12)'
+                    : 'rgba(30,30,40,0.9)',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                }
               }}
             >
-              <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <Avatar
-                    src={getRoleImage(player.current_role)}
-                    sx={{ width: 40, height: 40, mb: 0.5 }}
-                  />
-                  <Typography variant="body2" noWrap>
-                    AI玩家 {player.player_id}
+              <Box sx={{ 
+                width: '60px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                p: 1,
+                bgcolor: isCurrentPlayer ? 'rgba(245,0,87,0.15)' : 'rgba(0,0,0,0.2)',
+                borderRight: '1px solid rgba(255,255,255,0.05)'
+              }}>
+                <Avatar
+                  src={getRoleImage(player.current_role)}
+                  sx={{ 
+                    width: 45, 
+                    height: 45, 
+                    border: isCurrentPlayer 
+                      ? '2px solid rgba(245,0,87,0.5)' 
+                      : '2px solid rgba(255,255,255,0.1)'
+                  }}
+                />
+              </Box>
+              
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                justifyContent: 'center',
+                flexGrow: 1,
+                px: 2,
+                py: 1
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Typography variant="subtitle2" fontWeight="bold" noWrap>
+                    {player.name || `AI Player ${player.player_id}`}
+                    {isCurrentPlayer && (
+                      <Typography 
+                        component="span" 
+                        sx={{ 
+                          ml: 1, 
+                          color: '#f50057', 
+                          fontSize: '0.75rem', 
+                          fontWeight: 'bold' 
+                        }}
+                      >
+                        (ACTIVE)
+                      </Typography>
+                    )}
                   </Typography>
-                  <Chip
-                    size="small"
-                    label={player.team || '未知阵营'}
-                    color={player.team === 'werewolf' ? 'error' : 'success'}
-                    sx={{ mt: 0.5, fontSize: '0.7rem' }}
-                  />
-                  {player.current_role && (
-                    <Typography variant="caption" sx={{ mt: 0.5 }}>
-                      角色: {player.current_role}
-                    </Typography>
-                  )}
+                  <Tooltip title={`Team: ${player.team === 'werewolf' ? 'Werewolves' : 'Villagers'}`}>
+                    <Chip
+                      size="small"
+                      label={player.team || 'Unknown'}
+                      color={player.team === 'werewolf' ? 'error' : 'success'}
+                      sx={{ 
+                        height: '20px',
+                        '& .MuiChip-label': { 
+                          px: 1, 
+                          fontSize: '0.7rem',
+                          fontWeight: 'bold'
+                        }
+                      }}
+                    />
+                  </Tooltip>
                 </Box>
-              </CardContent>
+                
+                {player.current_role && (
+                  <Tooltip title="Current role (may have changed during the night)">
+                    <Typography variant="caption" sx={{ 
+                      mt: 0.5, 
+                      color: '#bdbdbd',
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}>
+                      <Box component="span" sx={{ 
+                        width: '8px', 
+                        height: '8px', 
+                        borderRadius: '50%',
+                        bgcolor: player.team === 'werewolf' ? '#f44336' : '#4caf50',
+                        mr: 1
+                      }} />
+                      Role: {formatRoleName(player.current_role)}
+                    </Typography>
+                  </Tooltip>
+                )}
+              </Box>
             </Card>
           </Grid>
-        ))}
-      </Grid>
-    </Paper>
+        );
+      })}
+    </Grid>
   );
 };
 

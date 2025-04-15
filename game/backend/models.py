@@ -175,6 +175,7 @@ class CreateGameResponse(BaseModel):
     message: str
     success: bool
     state: GameState
+    test_game_type: Optional[str] = None  # 添加test_game_type字段，用于create-test接口
 
 
 class GameStateResponse(BaseModel):
@@ -236,3 +237,18 @@ class GameResultResponse(BaseModel):
     center_cards: List[str]
     statistics: Dict[str, Any]
     game_summary: str 
+
+
+class NightActionRequest(BaseModel):
+    """Request for night action"""
+    player_id: int
+    role: str
+    game_state: GameState
+
+class NightActionResponse(BaseModel):
+    """Response for night action"""
+    success: bool
+    action: NightAction
+    game_state: GameState
+
+

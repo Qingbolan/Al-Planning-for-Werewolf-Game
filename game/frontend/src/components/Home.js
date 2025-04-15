@@ -6,15 +6,13 @@ import {
   Grid, CircularProgress, Box, Snackbar, Alert,
   MenuItem, FormControl, InputLabel, Select
 } from '@mui/material';
-import { gameApi } from '../services/api';
 
 const Home = () => {
   const navigate = useNavigate();
-  const { createGame, joinGame, loading, error } = useGame();
+  const { createGame, createTestGame, loading, error } = useGame();
   
   // Default player name
   const playerName = 'Player';
-  const [numPlayers] = useState(6);
   const [showError, setShowError] = useState(false);
   const [testGameType, setTestGameType] = useState('heuristic');
   
@@ -28,43 +26,59 @@ const Home = () => {
   // Create standard game
   const handleCreateGame = async () => {
     try {
-      // Configure new game
+      // 配置标准游戏 - 1个人类玩家和5个AI玩家
       const gameConfig = {
-        num_players: Number(numPlayers),
-        human_player_count: 1,
-        max_speech_rounds: 3,
-        ai_agent_type: "heuristic"
+        num_players: 6,
+        roles: ["werewolf", "werewolf", "minion", "villager", "seer", "troublemaker"],
+        players: {
+          "0": {"is_human": false, "name": "AI-0", "agent_type": "heuristic"},
+          "1": {"is_human": false, "name": "AI-1", "agent_type": "heuristic"},
+          "2": {"is_human": false, "name": "AI-2", "agent_type": "heuristic"},
+          "3": {"is_human": true, "name": playerName},
+          "4": {"is_human": false, "name": "AI-4", "agent_type": "heuristic"},
+          "5": {"is_human": false, "name": "AI-5", "agent_type": "heuristic"}
+        },
+        center_card_count: 3,
+        max_speech_rounds: 3
       };
       
-      // Create game
+      console.log("游戏配置:", gameConfig);
+      
+      // 创建游戏
       const result = await createGame(gameConfig);
-      console.log("Game created successfully:", result);
+      console.log("游戏创建成功:", result);
       
-      // Join the created game
-      await joinGame(result.game_id, playerName);
+      // 不需要额外加入游戏，因为带有人类玩家的游戏创建后会自动将该玩家加入
       
-      // Navigate to game page
+      // 导航到游戏页面
       navigate('/game');
     } catch (error) {
-      console.error('Failed to create game:', error);
+      console.error('创建游戏失败:', error);
+      setShowError(true);
     }
   };
 
   // Create test game
   const handleCreateTestGame = async () => {
     try {
-      // 创建测试游戏 - 由于我们删除了 createObserverTestGame 函数，现在使用普通的 createTestGame
-      const result = await gameApi.createTestGame(testGameType);
-      console.log("Test game created successfully:", result);
+      // 使用GameContext的createTestGame方法
+      const result = await createTestGame(testGameType);
+      console.log("测试游戏创建成功:", result);
       
-      if (result.success) {
-        // 由于现在使用普通测试游戏，我们需要导航到普通游戏页面
-        navigate('/game');
+      if (result && result.success) {
+        // 存储observer游戏ID
+        localStorage.setItem('observerGameId', result.gameId);
+        console.log("已设置observerGameId:", result.gameId);
+        
+        // 导航到游戏观察页面，观察AI自动对战
+        navigate('/game/observe');
       } else {
-        console.error('Failed to create test game:', result.error);
+        console.error('创建测试游戏失败:', result?.error || '未知错误');
+        setShowError(true);
       }
     } catch (error) {
-      console.error('Failed to create test game:', error);
+      console.error('创建测试游戏失败:', error);
+      setShowError(true);
     }
   };
 

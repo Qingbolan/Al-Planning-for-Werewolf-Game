@@ -12,8 +12,8 @@ app = FastAPI(
 # 添加CORS中间件 - 允许前端访问
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",    # React开发服务器
+    allow_origins=["*",
+        "http://localhost:3001",    # React开发服务器
         "http://localhost:8080",    # Vue.js开发服务器
         "http://localhost:4200",    # Angular开发服务器
         "http://localhost:5000",    # 其他可能的前端服务器
@@ -52,4 +52,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=18000)
