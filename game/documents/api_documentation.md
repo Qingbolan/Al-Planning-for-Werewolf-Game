@@ -70,38 +70,6 @@ Creates a game for observation and testing with all AI players. Immediately retu
   {  "game_id": "test1234",  "message": "Test game created successfully",  "success": true,  "test_game_type": "heuristic_villager_random_werewolf",  "state": {    "phase": "night",    "round": 0,    "speech_round": 0,    "current_player": 1,    "players": [      {        "player_id": 0,        "name": "AI-0",        "is_human": false,        "original_role": "troublemaker",        "current_role": "troublemaker",         "team": "villager",        "agent_type": "heuristic"      },      {        "player_id": 1,        "name": "AI-1",        "is_human": false,        "original_role": "werewolf",        "current_role": "werewolf",         "team": "werewolf",        "agent_type": "random"      },      {        "player_id": 2,        "name": "AI-2",        "is_human": false,        "original_role": "minion",        "current_role": "minion",         "team": "werewolf",        "agent_type": "heuristic"      },      {        "player_id": 3,        "name": "AI-3",        "is_human": false,        "original_role": "villager",        "current_role": "villager",         "team": "villager",        "agent_type": "heuristic"      },      {        "player_id": 4,        "name": "AI-4",        "is_human": false,        "original_role": "seer",        "current_role": "seer",         "team": "villager",        "agent_type": "heuristic"      },      {        "player_id": 5,        "name": "AI-5",        "is_human": false,        "original_role": "werewolf",        "current_role": "werewolf",         "team": "werewolf",        "agent_type": "random"      }    ],    "center_cards": ["robber", "villager", "insomniac"],    "werewolf_indices": [1, 5],    "villager_indices": [0, 2, 3, 4],    "action_order": [      "werewolf",      "minion",      "mason",      "seer",      "robber",      "troublemaker",      "drunk",      "insomniac"    ]  }}
 ```
 
-#### Join Game
-
-Allows a human player to join an existing game.
-
-* **URL** : `/api/game/join/{game_id}`
-* **Method** : `POST`
-* **Request Body** :
-
-```json
-  {  "player_name": "Player1"}
-```
-
-* **Response** :
-
-```json
-  {  "player_id": "human_player",  "game_id": "abcd1234",  "success": true,  "message": "Successfully joined game and started",  "state": {    "phase": "night",    "current_player_id": 0,    "current_role": "werewolf",    "players": [      {        "player_id": 0,        "name": "AI-0",        "is_human": false,        "team": "werewolf"      },      {        "player_id": "human_player",        "name": "Player1",        "is_human": true,        "original_role": "seer",        "current_role": "seer",        "team": "villager"      },      // More players...    ]  }}
-```
-
-#### Get Game State
-
-Retrieves the current game state, including visible information for the current player.
-
-* **URL** : `/api/game/state/{game_id}`
-* **Method** : `GET`
-* **Query Parameters** :
-* `player_id`: ID of the player requesting the state
-* **Response** :
-
-```json
-  {  "game_id": "abcd1234",  "phase": "night",  "current_player_id": 0,  "current_role": "werewolf",  "players": [    {      "player_id": 0,      "name": "AI-0",      "is_human": false,      "original_role": "werewolf", // Only visible to this player or teammates      "current_role": "werewolf",      "team": "werewolf",      "agent_type": "heuristic"    },    // More players (information filtered based on permissions)...  ],  "player_count": 6,  "center_cards": ["?", "?", "?"], // Unknown cards shown as "?"  "known_center_cards": {}, // Center cards that have been viewed  "visible_roles": {}, // Known roles of other players  "turn": 1,  "action_order": [    "werewolf",    "minion",    "mason",    "seer",    "robber",    "troublemaker",    "drunk",    "insomniac"  ],  "valid_actions": [    {      "action_type": "night_action",      "action_name": "werewolf_action",      "action_params": {        "options": ["view_other_werewolves", "view_center_card"]      }    }  ],  "speech_round": null,  "max_speech_rounds": 3,  "votes": null,  "winner": null,  "game_over": false,  "history": [],  "message": null}
-```
-
 ### Game Actions
 
 #### Perform Player Action

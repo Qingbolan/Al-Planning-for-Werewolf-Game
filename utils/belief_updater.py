@@ -333,8 +333,13 @@ class RoleSpecificBeliefUpdater:
         Args:
             votes: Vote results, key is voter ID, value is target ID
         """
+        # Check if votes is None or empty
+        if votes is None or not votes:
+            return
+            
         # Record vote history
-        self.belief_state.vote_history.update(votes)
+        if hasattr(self.belief_state, 'vote_history'):
+            self.belief_state.vote_history.update(votes)
         
         # Analyze voting patterns
         vote_counts = defaultdict(int)
@@ -650,6 +655,10 @@ class EnhancedBeliefUpdater(RoleSpecificBeliefUpdater):
         # Call the base update method
         super().update_with_votes(votes)
         
+        # Check if votes is None or empty
+        if votes is None or not votes:
+            return
+        
         # Track all votes
         for voter_id, target_id in votes.items():
             self.player_vote_history[voter_id].append(target_id)
@@ -712,6 +721,10 @@ class EnhancedBeliefUpdater(RoleSpecificBeliefUpdater):
         Returns:
             List of voter groups
         """
+        # Check if votes is None or empty
+        if votes is None or not votes:
+            return []
+            
         target_to_voters = defaultdict(list)
         
         # Group voters by their targets

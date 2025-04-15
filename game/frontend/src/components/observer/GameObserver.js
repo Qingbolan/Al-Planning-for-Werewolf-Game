@@ -21,152 +21,130 @@ import {
 
 const GameObserver = () => {
   const navigate = useNavigate();
-  const { gameState, setGameState } = useGame();
+  const { gameState, executeGameStep, disconnect, loading: contextLoading, error: contextError } = useGame();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [gameId, setGameId] = useState(null);
 
-  // 初始化：尝试从 localStorage 中获取测试游戏 ID
+  // Initialize: Check if game state exists in context
   useEffect(() => {
-    const initializeGame = async () => {
+    const checkGameState = async () => {
       try {
         setLoading(true);
+        
+        // Check if we already have a game state in context
+        if (gameState) {
+          setLoading(false);
+          return;
+        }
+        
+        // Check if we have a saved game ID in localStorage
         const observerGameId = localStorage.getItem('observerGameId');
-        if (observerGameId && observerGameId !== "undefined") {
-          console.log('使用已存在的游戏ID:', observerGameId);
-          setGameId(observerGameId);
-          // 获取初始游戏状态
-          await fetchInitialGameState(observerGameId);
-        } else {
-          // 无测试游戏 ID 或ID无效时给出提示
+        if (!observerGameId || observerGameId === "undefined") {
+          // No valid game ID found
           localStorage.removeItem('observerGameId');
-          setError('请先创建一个测试游戏后再访问此页面');
+          setError('Please create a test game first before accessing this page');
         }
       } catch (err) {
-        console.error('初始化游戏失败:', err);
-        setError(`初始化游戏失败: ${err.message}`);
+        console.error('Failed to initialize game:', err);
+        setError(`Game initialization failed: ${err.message}`);
       } finally {
         setLoading(false);
       }
     };
-    initializeGame();
-  }, []);
+    
+    checkGameState();
+  }, [gameState]);
 
-  // 获取初始游戏状态 - 使用正确的API或本地数据
-  const fetchInitialGameState = async (id) => {
-    if (!id || id === "undefined") return;
-    
-    // 这里使用模拟数据，完全避免调用 /api/game/state/ 端点
-    // 实际项目中应该使用正确的API端点或状态管理方案
-    const mockGameState = {
-      game_id: id,
-      phase: 'night',
-      turn: 1,
-      current_player_id: 0,
-      players: [
-        { player_id: 0, original_role: 'werewolf', current_role: 'werewolf', team: 'werewolf' },
-        { player_id: 1, original_role: 'seer', current_role: 'seer', team: 'villager' },
-        { player_id: 2, original_role: 'villager', current_role: 'villager', team: 'villager' },
-      ],
-      center_cards: ['robber', 'troublemaker', 'villager'],
-      history: [],
-      game_over: false
-    };
-    
-    setGameState(mockGameState);
-  };
-
-  // 模拟游戏状态更新 - 完全避免调用 /api/game/state/ 端点
-  useEffect(() => {
-    if (!gameId || gameId === "undefined") return;
-    
-    // 使用本地定时器模拟游戏状态变化，而不是通过API轮询
-    const interval = setInterval(() => {
-      // 此处可以执行本地状态更新逻辑，或者如果有其他正确的API端点可以使用
-      // 目前只是保持当前状态
-    }, 3000);
-    
-    return () => clearInterval(interval);
-  }, [gameId]);
-
-  // 返回首页：清除 localStorage 中的 observerGameId 并导航回首页
+  // Return to home: Clear observerGameId from localStorage and navigate to home
   const handleBackToHome = () => {
     localStorage.removeItem('observerGameId');
+    disconnect(); // Use disconnect method from GameContext
     navigate('/');
   };
 
-  // 获取下一个夜晚角色行动 - 使用模拟数据或正确的API
-  const getNextNightAction = async () => {
-    if (!gameId || gameId === "undefined") return null;
-    
-    // 返回模拟数据
-    return {
-      action: {
-        action_type: 'night_action',
-        action_name: 'werewolf_action',
-        player_id: 0
-      }
-    };
-  };
-
-  // 推进到下一游戏阶段 - 使用本地状态更新
-  const advanceGamePhase = async () => {
-    if (!gameId || gameId === "undefined" || !gameState) return null;
-    
-    // 本地更新游戏阶段
-    const newState = { ...gameState };
-    
-    // 简单的阶段循环：night -> day -> vote -> game_over
-    if (newState.phase === 'night') {
-      newState.phase = 'day';
-    } else if (newState.phase === 'day') {
-      newState.phase = 'vote';
-    } else if (newState.phase === 'vote') {
-      newState.phase = 'game_over';
-      newState.game_over = true;
-      newState.winner = 'villager'; // 模拟游戏结果
-    }
-    
-    setGameState(newState);
-    return newState;
-  };
-
-  // 处理"下一个行动"逻辑
+  // Advance the game by one step
   const handleNextAction = async () => {
     try {
-      // 判断当前阶段为夜晚则逐步执行角色行动，否则直接推进阶段
-      if (gameState && gameState.phase === 'night') {
-        const decision = await getNextNightAction();
-        // 如果返回的决策为空或没有 action 字段，则说明本阶段所有角色都已执行完毕，推进阶段
-        if (!decision || !decision.action) {
-          await advanceGamePhase();
-        } else {
-          // 模拟执行决策后的状态更新
-          const newState = { ...gameState };
-          if (!newState.history) newState.history = [];
-          
-          newState.history.push({
-            phase: 'night',
-            player_id: decision.action.player_id,
-            action: decision.action,
-            turn: newState.history.length + 1
-          });
-          
-          // 更新当前玩家为下一个玩家
-          newState.current_player_id = (newState.current_player_id + 1) % newState.players.length;
-          
-          setGameState(newState);
-        }
+      setLoading(true);
+      
+      console.log('执行下一步操作，当前游戏状态:', {
+        phase: gameState?.phase,
+        currentPlayerId: gameState?.current_player_id,
+        currentPlayerRole: gameState?.players?.find(p => p.player_id === gameState?.current_player_id)?.current_role
+      });
+      
+      const result = await executeGameStep();
+      
+      if (result && result.success) {
+        console.log('动作执行成功，更新后的状态:', {
+          newPhase: result.state_update?.phase,
+          newCurrentPlayer: result.state_update?.current_player_id
+        });
       } else {
-        await advanceGamePhase();
+        console.error('执行下一步失败:', result?.error);
+        setError(result?.error || '未知错误');
       }
     } catch (err) {
-      console.error('执行下一个行动失败:', err);
-      setError('执行行动失败: ' + err.message);
+      console.error('Failed to execute next action:', err);
+      setError('Action execution failed: ' + (err.message || '未知错误'));
+    } finally {
+      setLoading(false);
     }
   };
 
-  // 根据当前游戏状态渲染对应阶段组件
+  // Advance game phase (multiple steps at once)
+  const advanceGamePhase = async () => {
+    try {
+      // 记录当前游戏阶段
+      const currentPhase = gameState.phase;
+      
+      // 执行多个步骤直到阶段发生变化
+      let phaseSwitched = false;
+      let maxAttempts = 50; // 防止无限循环
+      let attempts = 0;
+      
+      setLoading(true);
+      
+      while (!phaseSwitched && attempts < maxAttempts) {
+        // 执行一个游戏步骤
+        const result = await executeGameStep();
+        attempts++;
+        
+        if (!result || !result.success) {
+          console.error('执行游戏步骤失败:', result?.error);
+          setError(result?.error || '未知错误');
+          break;
+        }
+        
+        // 检查游戏阶段是否已改变
+        if (
+          result.state_update && 
+          result.state_update.phase && 
+          result.state_update.phase !== currentPhase
+        ) {
+          phaseSwitched = true;
+          console.log(`游戏阶段已变更: ${currentPhase} -> ${result.state_update.phase}`);
+        }
+        
+        // 如果游戏结束，也停止循环
+        if (result.state_update && result.state_update.game_over) {
+          phaseSwitched = true;
+          console.log('游戏已结束');
+        }
+      }
+      
+      if (!phaseSwitched) {
+        console.warn(`无法切换游戏阶段，尝试了${attempts}次`);
+      }
+    } catch (err) {
+      console.error('Failed to advance game phase:', err);
+      setError('Phase advancement failed: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Render corresponding phase component based on current game state
   const renderPhaseComponent = () => {
     if (!gameState) {
       return (
@@ -180,7 +158,7 @@ const GameObserver = () => {
           }}
         >
           <Typography variant="h5" sx={{ mb: 2 }}>
-            正在等待游戏状态...
+            Waiting for game state...
           </Typography>
         </Container>
       );
@@ -217,66 +195,125 @@ const GameObserver = () => {
             }}
           >
             <Typography variant="h4" sx={{ mb: 2 }}>
-              未知游戏阶段: {gameState.phase}
+              Unknown game phase: {gameState.phase}
             </Typography>
             <Button variant="contained" onClick={handleBackToHome}>
-              返回首页
+              Return to Home
             </Button>
           </Box>
         );
     }
   };
 
-  // 渲染控制面板（固定在页面右下角）
-  const renderGameControls = () => (
-    <Box
-      sx={{
-        position: 'fixed',
-        bottom: 20,
-        right: 20,
-        zIndex: 1000,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 2,
-        backgroundColor: 'rgba(0,0,0,0.7)',
-        padding: 2,
-        borderRadius: 2
-      }}
-    >
-      <Typography variant="h6" sx={{ color: '#fff', mb: 1 }}>
-        演示控制
-      </Typography>
-      <Button
-        variant="contained"
-        color="primary"
-        onClick={handleNextAction}
-        startIcon={<PlayArrowIcon />}
-        sx={{ mb: 1 }}
+  // Render control panel with better labels and conditions
+  const renderGameControls = () => {
+    if (!gameState || gameState.game_over) {
+      // 游戏结束或未开始时不显示控制面板
+      return null;
+    }
+    
+    // 确定当前阶段的按钮文本
+    const getNextActionText = () => {
+      switch (gameState.phase) {
+        case 'night':
+          return 'Next Night Action';
+        case 'day':
+          return 'Next Speech';
+        case 'vote':
+          return 'Next Vote';
+        default:
+          return 'Next Step';
+      }
+    };
+    
+    // 确定"跳过"按钮的文本
+    const getSkipButtonText = () => {
+      switch (gameState.phase) {
+        case 'night':
+          return 'Skip to Day Phase';
+        case 'day':
+          return 'Skip to Vote Phase';
+        case 'vote':
+          return 'Skip to Game End';
+        default:
+          return 'Skip Phase';
+      }
+    };
+    
+    // 确定是否显示跳过按钮
+    // 夜晚阶段：检查是否所有特殊角色都已执行完毕
+    const isNightPhase = gameState.phase === 'night';
+    const actionOrder = gameState.action_order || ['werewolf', 'minion', 'seer', 'robber', 'troublemaker', 'insomniac'];
+    
+    // 获取当前玩家和角色
+    const currentPlayerId = gameState.current_player_id;
+    const currentPlayer = gameState.players.find(p => p.player_id === currentPlayerId);
+    const currentRole = currentPlayer?.current_role;
+    
+    // 夜晚阶段的跳过按钮条件:
+    // 1. 角色不是特殊角色
+    // 2. 或者是最后一个特殊角色
+    const canSkipNight = !isNightPhase || 
+      !currentRole || 
+      !actionOrder.includes(currentRole) || 
+      actionOrder.indexOf(currentRole) === actionOrder.length - 1;
+    
+    return (
+      <Box
+        sx={{
+          position: 'fixed',
+          bottom: 20,
+          right: 20,
+          zIndex: 1000,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2,
+          backgroundColor: 'rgba(0,0,0,0.7)',
+          padding: 2,
+          borderRadius: 2
+        }}
       >
-        下一个行动
-      </Button>
-      <Button
-        variant="contained"
-        color="secondary"
-        onClick={advanceGamePhase}
-        startIcon={<SkipNextIcon />}
-      >
-        跳至下一阶段
-      </Button>
-      <Button
-        variant="outlined"
-        color="error"
-        onClick={handleBackToHome}
-        startIcon={<HomeIcon />}
-        sx={{ mt: 1 }}
-      >
-        返回首页
-      </Button>
-    </Box>
-  );
+        {/* 下一步操作按钮 */}
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleNextAction}
+          startIcon={<PlayArrowIcon />}
+          sx={{ mb: 1 }}
+          disabled={loading}
+        >
+          {getNextActionText()}
+        </Button>
+        
+        {/* 跳过阶段按钮 */}
+        {canSkipNight && (
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={advanceGamePhase}
+            startIcon={<SkipNextIcon />}
+            disabled={loading}
+          >
+            {getSkipButtonText()}
+          </Button>
+        )}
+        
+        {/* 返回主页按钮 */}
+        <Button
+          variant="outlined"
+          color="error"
+          onClick={handleBackToHome}
+          startIcon={<HomeIcon />}
+          sx={{ mt: 1 }}
+        >
+          Return to Home
+        </Button>
+      </Box>
+    );
+  };
 
-  // 根据加载和错误状态渲染页面
-  if (loading) {
+  // Show loading state from either local state or context
+  if (loading || contextLoading) {
     return (
       <Container
         sx={{
@@ -289,16 +326,18 @@ const GameObserver = () => {
       >
         <CircularProgress size={60} sx={{ mb: 3 }} />
         <Typography variant="h5" sx={{ mb: 2 }}>
-          正在初始化游戏...
+          Initializing Game...
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          正在加载 AI 测试游戏，请稍候...
+          Loading AI test game, please wait...
         </Typography>
       </Container>
     );
   }
 
-  if (error) {
+  // Show errors from either local state or context
+  const displayError = error || contextError;
+  if (displayError) {
     return (
       <Container
         sx={{
@@ -310,14 +349,14 @@ const GameObserver = () => {
         }}
       >
         <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
+          {displayError}
         </Alert>
         <Button
           variant="contained"
           startIcon={<HomeIcon />}
           onClick={handleBackToHome}
         >
-          返回首页
+          Return to Home
         </Button>
       </Container>
     );

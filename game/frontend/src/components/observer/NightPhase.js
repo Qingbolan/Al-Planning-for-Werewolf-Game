@@ -6,13 +6,16 @@ import {
   CardContent,
   Avatar,
   Chip,
-  Paper
+  Paper,
+  Grid,
+  Container,
+  Divider
 } from '@mui/material';
 import PlayerList from './PlayerList';
 import CenterCards from './CenterCards';
 import GameHistory from './GameHistory';
 
-// 角色图片映射
+// Role images mapping
 const roleImages = {
   werewolf: '/images/werewolf.png',
   villager: '/images/villager.png',
@@ -24,135 +27,78 @@ const roleImages = {
   default: '/images/anyose.png',
 };
 
-// 获取角色图片
+// Get role image
 const getRoleImage = (role) => {
   return roleImages[role] || roleImages.default;
 };
 
-// 夜晚阶段行动描述
-const NightAction = ({ gameState }) => {
-  if (!gameState || !gameState.history || gameState.history.length === 0) {
-    return null;
-  }
-
-  // 获取最近的夜晚行动或当前角色
-  const latestNightAction = [...gameState.history]
-    .filter(action => action.phase === 'night' && action.action && action.action.action_type === 'NIGHT_ACTION')
-    .pop();
-
-  // 获取当前应该行动的玩家
-  const actionPlayer = latestNightAction 
-    ? gameState.players.find(p => p.player_id === latestNightAction.player_id)
-    : gameState.players.find(p => p.player_id === gameState.current_player_id);
-    
-  if (!actionPlayer) {
-    return null;
-  }
-
-  // 根据角色确定行动描述
-  let actionDescription = getActionDescription(actionPlayer.current_role);
-  
-  // 返回行动UI
-  return (
-    <Paper sx={{ 
-      p: 2, 
-      mb: 3, 
-      backgroundColor: 'rgba(0,0,0,0.75)', 
-      color: '#fff',
-      border: '1px solid rgba(100,150,255,0.5)'
-    }}>
-      <Typography variant="h6" gutterBottom sx={{ color: '#90caf9' }}>
-        当前夜晚行动 - 回合 {gameState.turn || 1}
-      </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-        <Avatar src={getRoleImage(actionPlayer.current_role)} sx={{ mr: 2, width: 56, height: 56 }} />
-        <Box>
-          <Typography variant="h6">
-            AI玩家 {actionPlayer.player_id} ({actionPlayer.current_role})
-          </Typography>
-          <Typography variant="body1" sx={{ color: '#e0e0e0' }}>
-            {actionDescription}
-          </Typography>
-          
-          {/* 添加行动顺序提示 */}
-          <Box sx={{ mt: 2, p: 1, backgroundColor: 'rgba(25,118,210,0.1)', borderRadius: '4px' }}>
-            <Typography variant="caption" sx={{ display: 'block', mb: 0.5, color: '#90caf9' }}>
-              夜晚行动顺序:
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#e0e0e0' }}>
-              狼人 → 预言家 → 强盗 → 捣蛋鬼 → 失眠者
-            </Typography>
-          </Box>
-        </Box>
-      </Box>
-    </Paper>
-  );
-};
-
-// 获取角色行动描述的辅助函数
+// Helper function to get role action description
 const getActionDescription = (role) => {
   switch (role) {
     case 'werewolf':
-      return '狼人正在确认队友的身份，并查看一张中央牌';
+      return 'The Werewolf is looking for other werewolves and viewing one center card';
     case 'seer':
-      return '预言家正在查看一名玩家或两张中央牌的身份';
+      return 'The Seer is looking at one player\'s card or two center cards';
     case 'robber':
-      return '强盗正在与一名玩家交换角色，并查看自己的新角色';
+      return 'The Robber is swapping roles with another player and checking the new role';
     case 'troublemaker':
-      return '捣蛋鬼正在交换两名其他玩家的角色';
+      return 'The Troublemaker is swapping roles between two other players';
     case 'insomniac':
-      return '失眠者正在确认自己的最终角色';
+      return 'The Insomniac is checking their final role';
     case 'minion':
-      return '爪牙正在确认狼人的身份';
+      return 'The Minion is identifying the Werewolves';
     default:
-      return '玩家正在执行夜晚行动';
+      return 'Player is performing night action';
   }
 };
 
-// 夜晚行动结果展示组件
+// Improved NightActionResult component with better support for all roles
 const NightActionResult = ({ gameState }) => {
-  // 获取最近的行动历史
+  // Get the latest action history
   const latestAction = gameState && gameState.history && gameState.history.length > 0
     ? gameState.history[gameState.history.length - 1]
     : null;
   
   if (!latestAction || latestAction.phase !== 'night') return null;
   
-  // 获取执行行动的玩家
+  // Get the player who performed the action
   const actionPlayer = gameState.players.find(p => p.player_id === latestAction.player_id);
   if (!actionPlayer) return null;
   
-  // 获取行动类型和结果
+  // Get action type and result
   const action = latestAction.action;
   if (!action) return null;
   
-  // 根据角色和行动获取结果描述
+  // Get action result description based on role and action
   const getActionResultDescription = () => {
     const role = actionPlayer.current_role;
     const actionName = action.action_name;
     
-    // 渲染特定角色行动结果
+    // Render specific role action result
     switch (role) {
       case 'werewolf':
-        if (actionName === 'werewolf_action') {
-          // 狼人查看队友
+        if (actionName === 'werewolf_action' || actionName === 'werewolf_check') {
+          // Werewolf team check
           const otherWerewolves = gameState.werewolf_info?.other_werewolves || [];
           const centerCard = gameState.werewolf_info?.center_card;
           
           return (
             <>
-              <Typography variant="subtitle1" sx={{ color: '#ff9800', mt: 1 }}>
-                行动结果:
+              <Typography variant="subtitle2" sx={{ color: '#ff9800', mt: 0.5, fontWeight: 'bold' }}>
+                Action Result:
               </Typography>
-              <Box sx={{ ml: 2 }}>
-                <Typography variant="body2">
+              <Box sx={{ ml: 1 }}>
+                <Typography variant="caption" sx={{ display: 'block' }}>
                   {otherWerewolves.length > 0 
-                    ? `发现其他狼人: ${otherWerewolves.map(id => `AI玩家 ${id}`).join(', ')}` 
-                    : '没有发现其他狼人'}
+                    ? `Found other Werewolves: ${otherWerewolves.map(id => {
+                      const player = gameState.players.find(p => p.player_id === id);
+                      return player?.name || `AI Player ${id}`;
+                    }).join(', ')}` 
+                    : 'No other Werewolves found'}
                 </Typography>
                 {centerCard && (
-                  <Typography variant="body2">
-                    查看中央牌 {centerCard.index + 1}: {centerCard.role}
+                  <Typography variant="caption" sx={{ display: 'block' }}>
+                    Viewed center card {centerCard.index + 1}: {centerCard.role}
                   </Typography>
                 )}
               </Box>
@@ -162,45 +108,133 @@ const NightActionResult = ({ gameState }) => {
         break;
         
       case 'seer':
-        if (actionName === 'seer_action') {
-          const targetType = action.action_params.target_type;
-          if (targetType === 'player') {
-            const targetId = action.action_params.target_id;
-            const targetPlayer = gameState.players.find(p => p.player_id === targetId);
-            
-            return (
-              <>
-                <Typography variant="subtitle1" sx={{ color: '#2196f3', mt: 1 }}>
-                  行动结果:
-                </Typography>
-                <Box sx={{ ml: 2 }}>
-                  <Typography variant="body2">
-                    查看 AI玩家 {targetId} 的角色: {targetPlayer?.current_role || '未知'}
+        if (actionName === 'seer_action' || actionName === 'seer_check') {
+          // Get seer info
+          const seerInfo = gameState.seer_info || {};
+          const checkedPlayer = seerInfo.checked_player;
+          const checkedCards = seerInfo.checked_cards || [];
+          
+          return (
+            <>
+              <Typography variant="subtitle2" sx={{ color: '#2196f3', mt: 0.5, fontWeight: 'bold' }}>
+                Action Result:
+              </Typography>
+              <Box sx={{ ml: 1 }}>
+                {checkedPlayer && (
+                  <Typography variant="caption" sx={{ display: 'block' }}>
+                    Checked player {checkedPlayer.player_id}'s role: {checkedPlayer.role}
                   </Typography>
-                </Box>
-              </>
-            );
-          } else {
-            const cardIndices = action.action_params.card_indices || [];
-            return (
-              <>
-                <Typography variant="subtitle1" sx={{ color: '#2196f3', mt: 1 }}>
-                  行动结果:
-                </Typography>
-                <Box sx={{ ml: 2 }}>
-                  {cardIndices.map((index, i) => (
-                    <Typography key={i} variant="body2">
-                      查看中央牌 {index + 1}: {gameState.center_cards?.[index] || '未知'}
-                    </Typography>
-                  ))}
-                </Box>
-              </>
-            );
-          }
+                )}
+                {checkedCards.length > 0 && checkedCards.map((card, i) => (
+                  <Typography key={i} variant="caption" sx={{ display: 'block' }}>
+                    Checked center card {card.index + 1}: {card.role}
+                  </Typography>
+                ))}
+              </Box>
+            </>
+          );
         }
         break;
         
-      // 其他角色行动结果...
+      case 'robber':
+        if (actionName === 'robber_action' || actionName === 'robber_swap') {
+          // Get robber info
+          const robberInfo = gameState.robber_info || {};
+          const swappedWith = robberInfo.swapped_with;
+          
+          return (
+            <>
+              <Typography variant="subtitle2" sx={{ color: '#4caf50', mt: 0.5, fontWeight: 'bold' }}>
+                Action Result:
+              </Typography>
+              <Box sx={{ ml: 1 }}>
+                {swappedWith && (
+                  <>
+                    <Typography variant="caption" sx={{ display: 'block' }}>
+                      Swapped with player {swappedWith.player_id}
+                    </Typography>
+                    <Typography variant="caption" sx={{ display: 'block' }}>
+                      New role: {swappedWith.original_role}
+                    </Typography>
+                  </>
+                )}
+              </Box>
+            </>
+          );
+        }
+        break;
+        
+      case 'troublemaker':
+        if (actionName === 'troublemaker_action' || actionName === 'troublemaker_swap') {
+          // Get troublemaker info
+          const troublemakerInfo = gameState.troublemaker_info || {};
+          const swappedPlayers = troublemakerInfo.swapped_players;
+          
+          return (
+            <>
+              <Typography variant="subtitle2" sx={{ color: '#f44336', mt: 0.5, fontWeight: 'bold' }}>
+                Action Result:
+              </Typography>
+              <Box sx={{ ml: 1 }}>
+                {swappedPlayers && (
+                  <Typography variant="caption" sx={{ display: 'block' }}>
+                    Swapped player {swappedPlayers.player1.id} and player {swappedPlayers.player2.id}
+                  </Typography>
+                )}
+              </Box>
+            </>
+          );
+        }
+        break;
+        
+      case 'insomniac':
+        if (actionName === 'insomniac_action' || actionName === 'insomniac_check') {
+          // Get insomniac info
+          const insomniacInfo = gameState.insomniac_info || {};
+          const finalRole = insomniacInfo.final_role;
+          
+          return (
+            <>
+              <Typography variant="subtitle2" sx={{ color: '#9c27b0', mt: 0.5, fontWeight: 'bold' }}>
+                Action Result:
+              </Typography>
+              <Box sx={{ ml: 1 }}>
+                {finalRole && (
+                  <Typography variant="caption" sx={{ display: 'block' }}>
+                    Final role: {finalRole}
+                  </Typography>
+                )}
+              </Box>
+            </>
+          );
+        }
+        break;
+        
+      case 'minion':
+        if (actionName === 'minion_action' || actionName === 'minion_check') {
+          // Get minion info
+          const minionInfo = gameState.minion_info || {};
+          const werewolves = minionInfo.werewolves || [];
+          
+          return (
+            <>
+              <Typography variant="subtitle2" sx={{ color: '#795548', mt: 0.5, fontWeight: 'bold' }}>
+                Action Result:
+              </Typography>
+              <Box sx={{ ml: 1 }}>
+                <Typography variant="caption" sx={{ display: 'block' }}>
+                  {werewolves.length > 0 
+                    ? `Identified Werewolves: ${werewolves.map(id => {
+                      const player = gameState.players.find(p => p.player_id === id);
+                      return player?.name || `AI Player ${id}`;
+                    }).join(', ')}` 
+                    : 'No Werewolves found'}
+                </Typography>
+              </Box>
+            </>
+          );
+        }
+        break;
         
       default:
         return null;
@@ -208,25 +242,26 @@ const NightActionResult = ({ gameState }) => {
   };
   
   return (
-    <Paper sx={{ 
-      p: 2, 
-      mb: 3, 
-      backgroundColor: 'rgba(0,0,0,0.75)', 
+    <Paper elevation={3} sx={{ 
+      p: 1.5, 
+      mb: 2, 
+      backgroundColor: 'rgba(255,152,0,0.07)', 
       color: '#fff',
-      border: '1px solid rgba(255,200,100,0.5)'
+      border: '1px solid rgba(255,152,0,0.3)',
+      borderRadius: 2
     }}>
-      <Typography variant="h6" gutterBottom sx={{ color: '#ffeb3b' }}>
-        行动结果
+      <Typography variant="subtitle1" gutterBottom sx={{ color: '#ffcc80', fontWeight: 'bold', mb: 0.5 }}>
+        Action Result
       </Typography>
       
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', mt: 1 }}>
-        <Avatar src={getRoleImage(actionPlayer.current_role)} sx={{ mr: 2, mt: 1 }} />
+      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
+        <Avatar src={getRoleImage(actionPlayer.current_role)} sx={{ mr: 1.5, width: 32, height: 32, border: '2px solid rgba(255,152,0,0.5)' }} />
         <Box>
-          <Typography variant="subtitle1">
-            AI玩家 {actionPlayer.player_id} ({actionPlayer.current_role})
+          <Typography variant="body2" sx={{ fontWeight: 'medium' }}>
+            {actionPlayer.name || `AI Player ${actionPlayer.player_id}`} ({actionPlayer.current_role})
           </Typography>
-          <Typography variant="body2" sx={{ color: '#e0e0e0' }}>
-            执行了: {getActionDescription(action.action_name)}
+          <Typography variant="caption" sx={{ color: '#e0e0e0', display: 'block' }}>
+            Performed: {getActionDescription(actionPlayer.current_role)}
           </Typography>
           
           {getActionResultDescription()}
@@ -240,58 +275,118 @@ const NightPhase = ({ gameState }) => {
   const currentPlayer = gameState.current_player_id !== null 
     ? gameState.players.find(p => p.player_id === gameState.current_player_id)
     : null;
+    
+  // Get action description for current player
+  const actionDescription = currentPlayer ? getActionDescription(currentPlayer.current_role) : '';
 
   return (
     <div style={{
-      backgroundImage: `url("/first_night.png")`,
+      backgroundImage: `linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), url("/first_night.png")`,
       backgroundSize: 'cover',
       backgroundPosition: 'center',
-      minHeight: '100vh',
-      padding: '20px 0'
+      height: '100vh',
+      overflow: 'hidden'
     }}>
-      <Box sx={{ maxWidth: 'lg', mx: 'auto', px: 2 }}>
-        {/* 夜晚阶段标题 */}
-        <Card sx={{ mb: 3, bgcolor: 'rgba(0,0,0,0.75)', color: '#fff', p: 2 }}>
-          <CardContent>
-            <Typography variant="h5" gutterBottom sx={{ color: '#e3f2fd', fontWeight: 'bold', textShadow: '2px 2px 4px rgba(0,0,0,0.7)' }}>
-              🌙 夜晚阶段
-            </Typography>
-            <Typography variant="body1" sx={{ color: '#e3f2fd', textShadow: '1px 1px 2px rgba(0,0,0,0.7)' }}>
-              夜晚降临，特殊角色正在执行他们的能力...
-            </Typography>
-            
-            <Box sx={{ mt: 2 }}>
+      <Container maxWidth="xl" sx={{ height: '100vh', pt: 2, pb: 2, overflow: 'hidden' }}>
+        <Grid container spacing={2} sx={{ height: '100%' }}>
+          {/* Left Column - Main Content (8/12) */}
+          <Grid item xs={12} lg={8} sx={{ height: '100%', overflow: 'auto' }}>
+            <Grid container spacing={2}>
+              {/* Game Phase Header - Full Width */}
+              <Grid item xs={12}>
+                <Card elevation={4} sx={{ 
+                  mb: 2, 
+                  bgcolor: 'rgba(0,0,0,0.6)', 
+                  color: '#fff', 
+                  p: 1.5,
+                  border: '1px solid rgba(25,118,210,0.3)',
+                  borderRadius: 2
+                }}>
+                  <CardContent sx={{ py: 1.5, px: 2, "&:last-child": { pb: 1.5 } }}>
+                    <Typography variant="h5" gutterBottom sx={{ 
+                      color: '#e3f2fd', 
+                      fontWeight: 'bold', 
+                      textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
+                      mb: 0.5
+                    }}>
+                      🌙 Night Phase
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#e3f2fd', textShadow: '1px 1px 2px rgba(0,0,0,0.7)' }}>
+                      Night has fallen, special roles are using their abilities...
+                    </Typography>
+                    
+                    <Box sx={{ mt: 1.5 }}>
+                      {currentPlayer && (
+                        <>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Typography variant="body2" sx={{ color: '#bdbdbd' }}>
+                              Current Acting Player: 
+                            </Typography>
+                            <Chip 
+                              size="small"
+                              avatar={<Avatar src={getRoleImage(currentPlayer.current_role)} sx={{ width: 24, height: 24 }} />}
+                              label={currentPlayer.name || `AI Player ${currentPlayer.player_id}`}
+                              color="primary"
+                              sx={{ ml: 1, height: '24px', '& .MuiChip-label': { fontSize: '0.75rem', px: 1 } }}
+                            />
+                          </Box>
+                          <Typography variant="caption" sx={{ color: '#e0e0e0', mt: 0.5, display: 'block' }}>
+                            {actionDescription}
+                          </Typography>
+                        </>
+                      )}
+                      
+                      {/* Action order hint */}
+                      <Box sx={{ mt: 1.5, p: 0.75, backgroundColor: 'rgba(25,118,210,0.15)', borderRadius: '6px' }}>
+                        <Typography variant="caption" sx={{ display: 'block', color: '#90caf9', fontWeight: 'bold', fontSize: '0.7rem' }}>
+                          Night Action Order:
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#e0e0e0', fontSize: '0.7rem' }}>
+                          Werewolf → Seer → Robber → Troublemaker → Insomniac
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
               
-              {currentPlayer && (
-                <Typography variant="body1" sx={{ mt: 1, display: 'flex', alignItems: 'center' }}>
-                  当前行动玩家: 
-                  <Chip 
-                    avatar={<Avatar src={getRoleImage(currentPlayer.current_role)} />}
-                    label={`AI玩家 ${currentPlayer.player_id}`}
-                    color="primary"
-                    sx={{ ml: 1 }}
-                  />
+              {/* Game History - Full Width */}
+              <Grid item xs={12}>
+                <GameHistory history={gameState.history} />
+              </Grid>
+              
+              {/* Night Action Results - Full Width */}
+              <Grid item xs={12}>
+                <NightActionResult gameState={gameState} />
+              </Grid>
+            </Grid>
+          </Grid>
+
+          {/* Right Column - Supporting Info (4/12) */}
+          <Grid item xs={12} lg={4} sx={{ height: '100%', overflow: 'auto' }}>
+            <Box>
+              {/* Players Section */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1" sx={{ mb: 1.5, color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.1)', pb: 0.5 }}>
+                  Game Participants
                 </Typography>
-              )}
+                <PlayerList players={gameState.players} currentPlayerId={gameState.current_player_id} />
+              </Box>
+              
+              {/* Divider */}
+              <Divider sx={{ my: 2, backgroundColor: 'rgba(255,255,255,0.1)' }} />
+              
+              {/* Center Cards Section */}
+              <Box>
+                <Typography variant="subtitle1" sx={{ mb: 1.5, color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.1)', pb: 0.5 }}>
+                  Center Cards
+                </Typography>
+                <CenterCards centerCards={gameState.center_cards} />
+              </Box>
             </Box>
-          </CardContent>
-        </Card>
-
-        {/* 夜晚行动描述 */}
-        <NightAction gameState={gameState} />
-        
-        {/* 玩家列表 */}
-        <PlayerList players={gameState.players} currentPlayerId={gameState.current_player_id} />
-        
-        {/* 中央牌 */}
-        <CenterCards centerCards={gameState.center_cards} />
-        
-        {/* 游戏历史 */}
-        <GameHistory history={gameState.history} />
-
-        {/* 行动结果展示 */}
-        <NightActionResult gameState={gameState} />
-      </Box>
+          </Grid>
+        </Grid>
+      </Container>
     </div>
   );
 };

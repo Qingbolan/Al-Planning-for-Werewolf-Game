@@ -171,14 +171,17 @@ const gameApi = {
     }
   },
 
-  // 执行游戏步骤 (自动化测试/模拟)
-  executeGameStep: async (gameId) => {
+  // 夜晚阶段特殊角色行动
+  autoNightStep: async (playerId, role, gameState) => {
     try {
-      const response = await apiClient.post(`/api/game/step`, {
-        game_id: gameId
+      const response = await apiClient.post(`/api/game/night_action`, {
+        player_id: playerId,
+        role: role,
+        game_state: gameState
       });
       
       return response.data;
+      // action: switch_role, change_role, night_action
     } catch (error) {
       console.error('执行游戏步骤失败:', error);
       throw error;

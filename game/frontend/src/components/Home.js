@@ -6,7 +6,6 @@ import {
   Grid, CircularProgress, Box, Snackbar, Alert,
   MenuItem, FormControl, InputLabel, Select
 } from '@mui/material';
-import { gameApi } from '../services/api';
 
 const Home = () => {
   const navigate = useNavigate();
@@ -14,7 +13,6 @@ const Home = () => {
   
   // Default player name
   const playerName = 'Player';
-  const [numPlayers] = useState(6);
   const [showError, setShowError] = useState(false);
   const [testGameType, setTestGameType] = useState('heuristic');
   
@@ -68,8 +66,12 @@ const Home = () => {
       console.log("测试游戏创建成功:", result);
       
       if (result && result.success) {
-        // 导航到游戏页面，观察AI自动对战
-        navigate('/game');
+        // 存储observer游戏ID
+        localStorage.setItem('observerGameId', result.gameId);
+        console.log("已设置observerGameId:", result.gameId);
+        
+        // 导航到游戏观察页面，观察AI自动对战
+        navigate('/game/observe');
       } else {
         console.error('创建测试游戏失败:', result?.error || '未知错误');
         setShowError(true);

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 import sys
 import os
 import random
+from .models import GameState, NightAction, NightActionResponse
 
 # Setup logging
 logger = logging.getLogger("game_manager")
@@ -113,6 +114,145 @@ class GameManager:
     
     # Class attribute to store game states
     game_states = {}
+
+    # 添加一个StateWrapper类，用于将字典转换为对象形式
+    class StateWrapper:
+        def __init__(self, state_dict):
+            # 将字典中的所有键值对复制到对象属性
+            for key, value in state_dict.items():
+                setattr(self, key, value)
+            
+            # 计算并添加num_players属性（玩家数量）
+            if hasattr(self, 'players') and isinstance(self.players, list):
+                self.num_players = len(self.players)
+            else:
+                self.num_players = 0
+                
+            # 添加更多可能需要的属性
+            # 角色列表
+            if not hasattr(self, 'roles'):
+                if hasattr(self, 'players') and isinstance(self.players, list):
+                    self.roles = [p.get('original_role', 'unknown') for p in self.players]
+                else:
+                    self.roles = []
+                    
+            # 狼人列表
+            if not hasattr(self, 'werewolf_indices'):
+                self.werewolf_indices = []
+                if hasattr(self, 'players') and isinstance(self.players, list):
+                    for i, player in enumerate(self.players):
+                        if player.get('original_role') == 'werewolf' or player.get('team') == 'werewolf':
+                            self.werewolf_indices.append(player.get('player_id', i))
+            
+            # 中央牌数量
+            if hasattr(self, 'center_cards') and isinstance(self.center_cards, list):
+                self.center_card_count = len(self.center_cards)
+            elif hasattr(self, 'config') and isinstance(self.config, dict) and 'center_card_count' in self.config:
+                self.center_card_count = self.config.get('center_card_count', 3)
+            else:
+                self.center_card_count = 3
+                
+            # 添加num_center_cards属性，与center_card_count相同
+            self.num_center_cards = self.center_card_count
+        
+        def __getattr__(self, name):
+            """处理所有未找到的属性访问，特别是get_xxx方法调用"""
+            # 处理特殊的方法调用
+            if name == 'get_observation':
+                def get_observation(player_id=None):
+                    """返回当前游戏状态的观察结果"""
+                    # 如果没有提供player_id，使用当前玩家
+                    if player_id is None:
+                        player_id = getattr(self, 'current_player', 0)
+                    
+                    # 创建观察结果
+                    observation = {
+                        'phase': getattr(self, 'phase', None),
+                        'round': getattr(self, 'round', 0),
+                        'current_player': getattr(self, 'current_player', None),
+                        'speech_round': getattr(self, 'speech_round', 0),
+                        'players': getattr(self, 'players', []),
+                        'center_cards': getattr(self, 'center_cards', []),
+                        'action_order': getattr(self, 'action_order', []),
+                        'votes': getattr(self, 'votes', {})
+                    }
+                    
+                    return observation
+                
+                return get_observation
+            
+            # 添加get_player_role方法
+            elif name == 'get_player_role':
+                def get_player_role(player_id):
+                    """获取指定玩家的角色"""
+                    players = getattr(self, 'players', [])
+                    for player in players:
+                        if player.get('player_id') == player_id:
+                            return player.get('current_role', 'unknown')
+                    return 'unknown'
+                
+                return get_player_role
+            
+            # 添加get_valid_actions方法
+            elif name == 'get_valid_actions':
+                def get_valid_actions(player_id=None):
+                    """获取有效动作列表"""
+                    # 如果没有提供player_id，使用当前玩家
+                    if player_id is None:
+                        player_id = getattr(self, 'current_player', 0)
+                        
+                    # 尝试从valid_actions字典中获取
+                    valid_actions = getattr(self, 'valid_actions', {})
+                    return valid_actions.get(str(player_id), [])
+                
+                return get_valid_actions
+            
+            # 添加get_num_center_cards方法
+            elif name == 'get_num_center_cards':
+                return lambda: getattr(self, 'num_center_cards', 3)
+            
+            # 添加get_center_cards方法
+            elif name == 'get_center_cards':
+                return lambda: getattr(self, 'center_cards', [])
+            
+            # 添加get_original_role_for_player方法
+            elif name == 'get_original_role_for_player':
+                def get_original_role(pid):
+                    players = getattr(self, 'players', [])
+                    for p in players:
+                        if p.get('player_id') == pid:
+                            return p.get('original_role', 'unknown')
+                    return 'unknown'
+                return get_original_role
+            
+            # 添加get_current_role_for_player方法
+            elif name == 'get_current_role_for_player':
+                def get_current_role(pid):
+                    players = getattr(self, 'players', [])
+                    for p in players:
+                        if p.get('player_id') == pid:
+                            return p.get('current_role', 'unknown')
+                    return 'unknown'
+                return get_current_role
+            
+            # 处理所有get_xxx方法调用
+            elif name.startswith('get_'):
+                # 从方法名提取属性名（去掉get_前缀）
+                attr_name = name[4:]
+                
+                # 默认情况：返回一个函数，调用时返回属性值（如果存在）或适当的默认值
+                return lambda *args, **kwargs: getattr(self, attr_name, None)
+                
+            # 对于任何其他属性访问，尝试直接返回相应的属性
+            # 这对于belief_updater等可能直接访问属性的代码很有用
+            try:
+                # 直接从字典属性中找
+                return getattr(self.__dict__, name, None)
+            except:
+                pass
+                
+            # 如果所有尝试都失败，才抛出AttributeError
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
     
     @staticmethod
     def create_game(config: GameConfig) -> dict:
@@ -254,18 +394,7 @@ class GameManager:
             }
     
     @staticmethod
-    def create_test_game(test_game_type="heuristic", num_players=3, seed=None):
-        """
-        Create a test game with preconfigured settings
-        
-        Args:
-            test_game_type: Type of test game to create (default: "heuristic")
-            num_players: Number of players in the test game (default: 3)
-            seed: Optional random seed for reproducibility (default: None)
-            
-        Returns:
-            dict: Game creation result with game ID and initial state
-        """
+    def create_test_game(test_game_type="heuristic", num_players=6, seed=42):
         try:
             logger.info(f"Creating test game with type={test_game_type}, num_players={num_players}, seed={seed}")
             
@@ -281,36 +410,16 @@ class GameManager:
             logger.info(f"Generated game ID: {game_id}")
             
             # Create roles configuration
-            roles = ["werewolf"]  # At least one werewolf
-            
-            # Add other roles based on number of players
-            additional_roles = []
-            if num_players >= 3:
-                additional_roles.extend(["seer", "robber"])
-            if num_players >= 5:
-                additional_roles.extend(["troublemaker", "drunk"])
-            if num_players >= 7:
-                additional_roles.extend(["insomniac", "mason", "mason"])
-            if num_players >= 10:
-                additional_roles.extend(["minion", "hunter"])
-                
-            # Fill remaining slots with villagers
-            villager_count = max(0, num_players - 1 - len(additional_roles))
-            additional_roles.extend(["villager"] * villager_count)
-            
-            # Shuffle roles and select required number
-            random.shuffle(additional_roles)
-            roles.extend(additional_roles[:num_players - 1])
+            roles = ["werewolf", "werewolf", "minion", "seer", "robber", "troublemaker", "villager", "villager", "insomniac"]  # At least one werewolf
             
             logger.info(f"Roles for game: {roles}")
             
             # Create player configurations
             player_configs = {}
             for i in range(num_players):
-                is_human = (i == 0)  # First player is human by default
+                # 测试游戏中所有玩家都应该是AI玩家
                 player_configs[i] = {
-                    "is_human": is_human,
-                    "name": f"Player {i}" if not is_human else "You",
+                    "is_human": False,
                     "agent_type": test_game_type
                 }
             
@@ -321,7 +430,7 @@ class GameManager:
                 "num_players": num_players,
                 "roles": roles,
                 "center_card_count": 3,
-                "max_speech_rounds": 2,
+                "max_speech_rounds": 3,
                 "seed": seed
             }
             
@@ -495,9 +604,14 @@ class GameManager:
             try:
                 agent = create_agent(agent_type, player_id, state_to_use)
                 
+                # 将字典状态转换为对象状态，以便代理可以使用.属性方式访问
+                # 即使create_agent内部已经使用了StateWrapper，这里也再次包装
+                # 是为了确保与step_game方法保持一致的调用模式
+                wrapped_state = GameManager.StateWrapper(state_to_use)
+                
                 # Get the decision
                 logger.info(f"Agent {agent_type} deciding action for player {player_id}")
-                action, reasoning = agent.decide_action(state_to_use)
+                action, reasoning = agent.decide_action(wrapped_state)
                 
                 logger.info(f"Agent decision: {action} with reasoning: {reasoning}")
                 
@@ -585,11 +699,14 @@ class GameManager:
                 agent_type = player.get("agent_type", "heuristic")
                 logger.info(f"Creating {agent_type} agent for player {current_player_id}")
                 
+                # 创建代理，现在create_agent函数内部会使用StateWrapper
                 agent = create_agent(agent_type, current_player_id, current_state)
                 
                 # Get the decision
                 logger.info(f"Agent deciding action for player {current_player_id}")
-                action, reasoning = agent.decide_action(current_state)
+                # 创建代理时已经使用了StateWrapper，这里重新包装是为了保持与get_ai_decision方法一致
+                wrapped_state = GameManager.StateWrapper(current_state)
+                action, reasoning = agent.decide_action(wrapped_state)
                 
                 logger.info(f"Agent decision: {action} with reasoning: {reasoning}")
                 
@@ -823,6 +940,91 @@ class GameManager:
             "message": None
         }
 
+    @staticmethod
+    def auto_night_action(player_id: int, game_state: GameState, role: str) -> NightActionResponse:
+        """
+        Executes a night action for a player automatically based on their role.
+        
+        Args:
+            player_id: The player performing the action
+            game_state: Current game state
+            role: The role of the player
+            
+        Returns:
+            NightActionResponse with action result and updated game state
+        """
+        import random  # Import random once at the start of the function
+        
+        success = False
+        action = None
+        
+        # Execute night action based on player's role
+        if role == 'werewolf':
+            # Werewolf can check other werewolves or view a center card
+            other_werewolves = [p.player_id for p in game_state.players if p.current_role == "werewolf" and p.player_id != player_id]
+            if other_werewolves:
+                target_id = other_werewolves[0]
+                action = NightAction(action_name="werewolf_check", action_params={"target": target_id})
+            else:
+                # If no other werewolf is available, check a center card (index 0)
+                action = NightAction(action_name="werewolf_check", action_params={"center_card": 0})
+            success = True
+            
+        elif role == 'seer':
+            # Seer can check a player's role or view two center cards
+            player_count = len(game_state.players) if hasattr(game_state, 'players') else 0
+            if random.random() < 0.5 and player_count > 1:
+                # Choose a player (excluding self) to check their role
+                target_id = random.choice([p.player_id for p in game_state.players if p.player_id != player_id])
+                action = NightAction(action_name="seer_check", action_params={"target": target_id})
+            else:
+                # Otherwise, view two center cards
+                action = NightAction(action_name="seer_check", action_params={"center_cards": [0, 1]})
+            success = True
+            
+        elif role == 'robber':
+            # Robber swaps roles with another player
+            player_count = len(game_state.players) if hasattr(game_state, 'players') else 0
+            if player_count > 1:
+                target_id = random.choice([p.player_id for p in game_state.players if p.player_id != player_id])
+                action = NightAction(action_name="robber_swap", action_params={"target": target_id})
+                success = True
+                
+        elif role == 'troublemaker':
+            # Troublemaker swaps roles between two other players
+            other_players = [p for p in game_state.players if p.player_id != player_id]
+            if len(other_players) >= 2:
+                target1, target2 = random.sample(other_players, 2)
+                action = NightAction(
+                    action_name="troublemaker_swap",
+                    action_params={
+                        "target1": target1.player_id,
+                        "target2": target2.player_id
+                    }
+                )
+                success = True
+                    
+        elif role == 'insomniac':
+            # Insomniac checks their own current role
+            action = NightAction(action_name="insomniac_check", action_params={})
+            success = True
+            
+        elif role == 'minion':
+            # Minion has no active night action
+            action = NightAction(action_name="minion_sleep", action_params={})
+            success = True
+            
+        elif role == 'villager':
+            # Villager has no night action but still returns a successful response
+            action = NightAction(action_name="villager_sleep", action_params={})
+            success = True
+            
+        return NightActionResponse(
+            success=success,
+            action=action if action else NightAction(action_name="unknown", action_params={}),
+            game_state=game_state
+        )
+
 # Import necessary modules for game environment and agents
 from werewolf_env import WerewolfEnv
 from agents import RandomAgent, HeuristicAgent
@@ -881,76 +1083,188 @@ def create_game_environment(env_config, player_configs):
         num_players = env_config.get("num_players", 0)
         if num_players <= 0:
             raise ValueError("Number of players must be positive")
-            
-        # Validate roles
-        roles = env_config.get("roles", [])
-        if len(roles) < num_players:
-            # 修复: 自动扩展角色列表，而不是抛出错误
-            additional_roles_needed = num_players - len(roles)
-            roles.extend(["villager"] * additional_roles_needed)
-            logger.warning(f"Not enough roles provided. Adding {additional_roles_needed} villager roles.")
+
+        # Get role configuration options
+        use_complete_roles = env_config.get("use_complete_roles", False)
         
-        # 使用环境配置中的种子来保证可重复性
+        # Implement role assignment using the test_agents.py approach
+        if use_complete_roles:
+            # Use the complete standard role set (consistent with ONUW game)
+            all_roles = [
+                'villager', 'villager',  # 2 villagers
+                'werewolf', 'werewolf',  # 2 werewolves
+                'minion',                # 1 minion
+                'seer',                  # 1 seer
+                'troublemaker',          # 1 troublemaker
+                'robber',                # 1 robber
+                'insomniac'              # 1 insomniac
+            ]
+            # Calculate center card count (total roles - player count)
+            center_card_count = 3
+            roles = all_roles
+        else:
+            # Check if roles are explicitly provided in env_config
+            roles = env_config.get("roles", [])
+            
+            if not roles:
+                # Use simple villager/werewolf distribution if no roles provided
+                num_werewolves = max(1, num_players // 3)
+                num_villagers = num_players - num_werewolves
+                roles = ['werewolf'] * num_werewolves + ['villager'] * num_villagers
+            
+            # Ensure enough roles for all players
+            if len(roles) < num_players:
+                additional_roles_needed = num_players - len(roles)
+                roles.extend(["villager"] * additional_roles_needed)
+            
+            # Default center card count
+            center_card_count = env_config.get("center_card_count", 3)
+        
+        # Use seed from environment config for reproducibility
         seed = env_config.get("seed")
         if seed is not None:
             import random
             random.seed(seed)
             
-        # 生成游戏ID
+            # Shuffle roles if seed is provided
+            random.shuffle(roles)
+            
+        # Generate game ID
         import uuid
         game_id = str(uuid.uuid4())[:8]
         
-        # Create a simplified environment for testing
-        logger.info("Creating game environment")
-        logger.info(f"Environment config: {env_config}")
-        logger.info(f"Player configs: {player_configs}")
-        
         # Create initial state structure
         initial_state = {
-            "game_id": game_id,  # 添加game_id字段
+            "game_id": game_id,
             "phase": "night",
             "round": 0,
             "speech_round": 0,
             "current_player": 0,
             "players": [],
-            "center_cards": ["villager", "tanner", "hunter"],  # 示例中心牌
+            "roles": roles,  # Store all roles
             "werewolf_indices": [],
             "villager_indices": [],
             "action_order": [
-                "werewolf", "minion", "mason", "seer", 
-                "robber", "troublemaker", "drunk", "insomniac"
+                "werewolf", "minion",  "seer", 
+                "robber", "troublemaker", "insomniac"
             ],
-            "max_speech_rounds": env_config.get("max_speech_rounds", 3)  # 添加max_speech_rounds字段
+            "max_speech_rounds": env_config.get("max_speech_rounds", 3)
         }
+        
+        # Prioritize critical roles (werewolf x2 and minion) from the existing roles
+        # Count how many of each critical role we have in the original role list
+        role_counts = {}
+        for role in roles:
+            role_counts[role] = role_counts.get(role, 0) + 1
+            
+        # Check if we have enough critical roles
+        werewolf_count = role_counts.get('werewolf', 0)
+        minion_count = role_counts.get('minion', 0)
+        
+        if werewolf_count < 2 or minion_count < 1:
+            logger.warning(f"Not enough critical roles in the original role list. Found {werewolf_count} werewolves and {minion_count} minions.")
+            logger.warning("Standard game requires 2 werewolves and 1 minion.")
+            
+        # Reorganize roles to prioritize critical roles
+        critical_roles = []
+        non_critical_roles = []
+        
+        # Extract werewolves (up to 2)
+        werewolf_extracted = 0
+        for i, role in enumerate(roles):
+            if role == 'werewolf' and werewolf_extracted < 2:
+                critical_roles.append(role)
+                werewolf_extracted += 1
+            else:
+                non_critical_roles.append(role)
+                
+        # Extract minion (1)
+        minion_extracted = 0
+        for i, role in enumerate(non_critical_roles):
+            if role == 'minion' and minion_extracted < 1:
+                critical_roles.append(role)
+                minion_extracted += 1
+                non_critical_roles.remove(role)
+                break
+        
+        # Reorganize roles with critical roles first
+        reorganized_roles = critical_roles + non_critical_roles
+        
+        # Ensure we have enough roles for all players and center cards
+        total_roles_needed = num_players + center_card_count
+        if len(reorganized_roles) < total_roles_needed:
+            additional_roles_needed = total_roles_needed - len(reorganized_roles)
+            reorganized_roles.extend(["villager"] * additional_roles_needed)
+            
+        # Set up center cards - now the critical roles will be in front and assigned to players
+        player_roles = reorganized_roles[:num_players]
+        center_cards = reorganized_roles[num_players:num_players+center_card_count] if center_card_count > 0 else []
+        
+        # Add center cards to initial state
+        initial_state["center_cards"] = center_cards
+        initial_state["roles"] = reorganized_roles  # Update the roles list
         
         # Assign roles to players
         for i in range(num_players):
-            role = roles[i] if i < len(roles) else "villager"
-            player_info = {
-                "player_id": i,
-                "name": f"Player {i}",
-                "is_human": False,
-                "original_role": role,
-                "current_role": role,
-                "team": "villager" if role != "werewolf" and role != "minion" else "werewolf",
-                "agent_type": "heuristic"
-            }
+            role = player_roles[i] if i < len(player_roles) else "villager"
+            
+            # Determine team based on role
+            team = "werewolf" if role in ["werewolf", "minion"] else "villager"
+            
+            # Default agent type
+            agent_type = "heuristic"
             
             # Apply player config if available
+            is_human = False
+            custom_name = None
+            
             if i in player_configs:
                 config = player_configs[i]
-                player_info["is_human"] = config.get("is_human", False)
-                player_info["name"] = config.get("name", f"Player {i}")
-                player_info["agent_type"] = config.get("agent_type", "heuristic")
+                is_human = config.get("is_human", False)
+                custom_name = config.get("name")
+                agent_type = config.get("agent_type", "heuristic")
+            
+            # Generate player name based on agent type if no custom name provided
+            if not custom_name:
+                if is_human:
+                    player_name = "You"  # 人类玩家显示为"You"
+                else:
+                    # Map agent type to readable name
+                    agent_type_names = {
+                        "random": "Random",
+                        "heuristic": "Heuristic",
+                        "rl": "RL",
+                        "mixed": "Mixed"
+                    }
+                    agent_type_display = agent_type_names.get(agent_type, agent_type.capitalize())
+                    player_name = f"{agent_type_display} {i}"  # 更简洁的格式，去掉"Player"一词
+            else:
+                player_name = custom_name
+            
+            player_info = {
+                "player_id": i,
+                "name": player_name,
+                "is_human": is_human,
+                "original_role": role,
+                "current_role": role,
+                "team": team,
+                "agent_type": agent_type
+            }
                 
             # Add to player list
             initial_state["players"].append(player_info)
             
             # Track werewolf and villager indices
-            if role == "werewolf":
+            if team == "werewolf":
                 initial_state["werewolf_indices"].append(i)
             else:
                 initial_state["villager_indices"].append(i)
+                
+        # Create role map for easy access
+        initial_state["role_map"] = {player["player_id"]: player["current_role"] for player in initial_state["players"]}
+        
+        # Create team map for easy access 
+        initial_state["team_map"] = {player["player_id"]: player["team"] for player in initial_state["players"]}
                 
         # Mock environment
         class MockEnv:
@@ -1096,10 +1410,14 @@ def create_agent(agent_type, player_id, state):
         # 使用agent_factory创建代理
         agent = factory_create_agent(agent_type, player_id=player_id)
         
+        # 将状态转换为StateWrapper对象
+        wrapped_state = GameManager.StateWrapper(state)
+        
         # 初始化代理，如果有initialize方法
         if hasattr(agent, "initialize"):
             logger.info(f"初始化代理: 玩家ID={player_id}")
-            agent.initialize(state)
+            # 使用wrapped_state而不是原始state进行初始化
+            agent.initialize(wrapped_state)
             
         # 检查代理是否有decide_action方法
         if not hasattr(agent, "decide_action"):

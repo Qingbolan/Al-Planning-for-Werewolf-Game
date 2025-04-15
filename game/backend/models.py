@@ -237,3 +237,18 @@ class GameResultResponse(BaseModel):
     center_cards: List[str]
     statistics: Dict[str, Any]
     game_summary: str 
+
+
+class NightActionRequest(BaseModel):
+    """Request for night action"""
+    player_id: int
+    role: str
+    game_state: GameState
+
+class NightActionResponse(BaseModel):
+    """Response for night action"""
+    success: bool
+    action: NightAction
+    game_state: GameState
+
+

@@ -1,15 +1,16 @@
 import React from 'react';
 import {
   Grid,
-  Paper,
   Typography,
   Avatar,
   Box,
   Card,
-  CardContent
+  CardContent,
+  Tooltip,
+  Zoom
 } from '@mui/material';
 
-// 角色图片映射
+// Role images mapping
 const roleImages = {
   werewolf: '/images/werewolf.png',
   villager: '/images/villager.png',
@@ -21,9 +22,14 @@ const roleImages = {
   default: '/images/anyose.png',
 };
 
-// 获取角色图片
+// Get role image
 const getRoleImage = (role) => {
   return roleImages[role] || roleImages.default;
+};
+
+// Role name formatting
+const formatRoleName = (role) => {
+  return role.charAt(0).toUpperCase() + role.slice(1);
 };
 
 const CenterCards = ({ centerCards }) => {
@@ -32,30 +38,86 @@ const CenterCards = ({ centerCards }) => {
   }
 
   return (
-    <Paper sx={{ p: 2, mb: 3, backgroundColor: 'rgba(0,0,0,0.75)', color: '#fff' }}>
-      <Typography variant="h6" gutterBottom>
-        中央牌
-      </Typography>
+    <Box>
       <Grid container spacing={2}>
         {centerCards.map((role, index) => (
           <Grid item xs={4} key={index}>
-            <Card sx={{ backgroundColor: 'rgba(30,30,40,0.9)', color: '#fff' }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <Tooltip 
+              title={`Center Card ${index + 1}: ${formatRoleName(role)}`}
+              TransitionComponent={Zoom}
+              placement="top"
+              arrow
+            >
+              <Card 
+                elevation={2}
+                sx={{ 
+                  backgroundColor: 'rgba(30,30,40,0.7)', 
+                  color: '#fff', 
+                  height: '100%',
+                  position: 'relative',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    backgroundColor: 'rgba(30,30,40,0.9)',
+                    transform: 'translateY(-3px)',
+                    boxShadow: '0 6px 12px rgba(0,0,0,0.3)'
+                  }
+                }}
+              >
+                <Box 
+                  sx={{ 
+                    position: 'absolute', 
+                    top: 0, 
+                    left: 0, 
+                    bgcolor: 'rgba(0,0,0,0.5)', 
+                    color: '#fff',
+                    px: 1,
+                    py: 0.3,
+                    borderBottomRightRadius: '8px',
+                    fontSize: '0.7rem',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  #{index + 1}
+                </Box>
+                <CardContent sx={{ 
+                  p: 2, 
+                  "&:last-child": { pb: 2 },
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
                   <Avatar
                     src={getRoleImage(role)}
-                    sx={{ width: 50, height: 50, mb: 1 }}
+                    alt={role}
+                    sx={{ 
+                      width: 52, 
+                      height: 52, 
+                      mb: 1,
+                      border: '2px solid rgba(255,255,255,0.2)',
+                      boxShadow: '0 3px 8px rgba(0,0,0,0.3)'
+                    }}
                   />
-                  <Typography variant="body2">
-                    中央牌 {index + 1}: {role}
+                  <Typography 
+                    variant="subtitle2" 
+                    align="center"
+                    sx={{ 
+                      fontWeight: 'bold',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    {formatRoleName(role)}
                   </Typography>
-                </Box>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </Tooltip>
           </Grid>
         ))}
       </Grid>
-    </Paper>
+    </Box>
   );
 };
 
